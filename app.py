@@ -4,6 +4,9 @@ import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+import av
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Face Attendance", layout="wide")
 
@@ -12,31 +15,24 @@ MODEL_KNN_PATH = Path("knn/knn_face_classifier.pkl")
 PROCESS_EVERY_N = 8
 REFRESH_MS = 200
 
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]}
+)
+
 import torch
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 _DEVICE_STR = f"{'GPU' if torch.cuda.is_available() else 'CPU'} ({_DEVICE})"
 
 
-class CameraProcessor:
+class FaceRecognizerProcessor(VideoProcessorBase):
     def __init__(self):
-        self._running = False
-        self._capture_thread: Optional[threading.Thread] = None
-        self._process_thread: Optional[threading.Thread] = None
-        
-        self._raw_frame = None
-        self._raw_frame_lock = threading.Lock()
-        
-        self._jpeg: Optional[bytes] = None
-        self._frame_lock = threading.Lock()
+        self.threshold = 0.5
+        self.model_type = "svm"
+        self._error = None
+        self._heavy_initialized = False
         
         self._pending = []
         self._pending_lock = threading.Lock()
-        
-        self._error = None
-        self._ready = False
-        self.threshold = 0.5
-        self.model_type = "svm"
-        self._heavy_initialized = False
         
         # Start preloading heavy models in a background thread immediately!
         self._preload_thread = threading.Thread(target=self._preload_heavy, daemon=True)
@@ -77,189 +73,102 @@ class CameraProcessor:
         self._resnet = InceptionResnetV1(pretrained="vggface2").eval().to(_DEVICE)
         self._heavy_initialized = True
 
-    def _capture_loop(self):
-        import time
-        cv2 = self.cv2
-        try:
-            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                self._error = "Cannot open webcam"
-                self._running = False
-                return
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-            while self._running:
-                ret, frame = cap.read()
-                if not ret:
-                    time.sleep(0.01)
-                    continue
-                with self._raw_frame_lock:
-                    self._raw_frame = frame.copy()
-        except Exception as e:
-            self._error = f"Capture error: {str(e)}"
-        finally:
-            if cap is not None:
-                cap.release()
-
-    def _processing_loop(self):
-        import pickle
-        import time
-        try:
-            cv2 = self.cv2
-            np = self.np
-
-            model_path = MODEL_KNN_PATH if self.model_type == "knn" else MODEL_SVM_PATH
-            with open(model_path, "rb") as f:
-                d = pickle.load(f)
-            clf = d.get("classifier") or d.get("svm") or d.get("knn")
-            le = d["label_encoder"]
-
-            self._ready = True
-            fc = 0
-
-            while self._running:
-                frame = None
-                with self._raw_frame_lock:
-                    if self._raw_frame is not None:
-                        frame = self._raw_frame.copy()
-
-                if frame is None:
-                    time.sleep(0.01)
-                    continue
-
-                fc += 1
-                do_detect = (fc % PROCESS_EVERY_N == 0)
-
-                if do_detect:
-                    h, w = frame.shape[:2]
-                    scale_x = w / 320.0
-                    scale_y = h / 240.0
-
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    small_detect = cv2.resize(rgb, (320, 240))
-                    try:
-                        boxes, probs = self._mtcnn.detect(small_detect)
-                    except Exception:
-                        boxes = None
-
-                    self._last_embeddings = []
-                    if boxes is not None:
-                        for i, b in enumerate(boxes):
-                            if probs is not None and probs[i] < 0.8:
-                                continue
-                            x1 = int(max(0.0, b[0] * scale_x))
-                            y1 = int(max(0.0, b[1] * scale_y))
-                            x2 = int(min(w, b[2] * scale_x))
-                            y2 = int(min(h, b[3] * scale_y))
-                            if x2 - x1 < 30 or y2 - y1 < 30:
-                                continue
-                            try:
-                                face_crop = cv2.resize(frame[y1:y2, x1:x2], (160, 160))
-                            except cv2.error:
-                                continue
-                            try:
-                                rgb2 = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
-                                pil = self.Image.fromarray(rgb2)
-                                t = self._transform(pil).unsqueeze(0).to(_DEVICE)
-                                with torch.no_grad():
-                                    emb = self._resnet(t).cpu().numpy().flatten()
-                            except Exception:
-                                continue
-                            if emb is None:
-                                continue
-                            ps = clf.predict_proba([emb])[0]
-                            pi = np.argmax(ps)
-                            conf = ps[pi]
-                            name = le.classes_[pi]
-                            self._last_embeddings.append((x1, y1, x2, y2, name, conf))
-
-                if hasattr(self, "_last_embeddings") and self._last_embeddings:
-                    for x1, y1, x2, y2, name, conf in self._last_embeddings:
-                        if conf >= self.threshold:
-                            color = (0, 255, 0)
-                            label = f"{name} ({conf:.0%})"
-                            with self._pending_lock:
-                                if name not in self._pending:
-                                    self._pending.append(name)
-                        else:
-                            color = (0, 255, 255)
-                            label = f"{name}? ({conf:.0%})"
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                        tw, th2 = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-                        cv2.rectangle(frame, (x1, y1 - th2 - 8), (x1 + tw + 8, y1), color, -1)
-                        cv2.putText(frame, label, (x1 + 4, y1 - 4),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
-
-                small = cv2.resize(frame, (320, 240))
-                _, jpg = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 60])
-                with self._frame_lock:
-                    self._jpeg = jpg.tobytes()
-
-                time.sleep(0.01)
-
-        except Exception as e:
-            self._error = str(e)
-            import traceback
-            self._error += "\n" + traceback.format_exc()
-        finally:
-            self._ready = False
-
-    def start(self, thresh=0.5, model_type="svm"):
-        self.threshold = thresh
-        self.model_type = model_type
-        if self._running:
-            return
-        if hasattr(self, "_preload_thread") and self._preload_thread.is_alive():
-            self._preload_thread.join()
-        self._init_heavy()
-        self._running = True
-        self._error = None
-        self._ready = False
-        self._jpeg = None
-        self._raw_frame = None
-        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
-        self._process_thread = threading.Thread(target=self._processing_loop, daemon=True)
-        self._capture_thread.start()
-        self._process_thread.start()
-
-    def stop(self):
-        self._running = False
-        if self._capture_thread is not None:
-            self._capture_thread.join(timeout=3)
-            self._capture_thread = None
-        if self._process_thread is not None:
-            self._process_thread.join(timeout=3)
-            self._process_thread = None
-
-    @property
-    def is_running(self):
-        return self._running
-
-    @property
-    def is_ready(self):
-        return self._ready
-
-    @property
-    def error(self):
-        return self._error
-
-    def get_jpeg(self):
-        with self._frame_lock:
-            return self._jpeg
-
     def pop_pending(self):
         with self._pending_lock:
             items = list(self._pending)
             self._pending.clear()
             return items
 
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        if not self._heavy_initialized:
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-@st.cache_resource
-def get_cam():
-    return CameraProcessor()
+        # Load/reload classifiers if needed
+        if not hasattr(self, "_current_model_type") or self._current_model_type != self.model_type or not hasattr(self, "_clf"):
+            try:
+                import pickle
+                model_path = MODEL_KNN_PATH if self.model_type == "knn" else MODEL_SVM_PATH
+                with open(model_path, "rb") as f:
+                    d = pickle.load(f)
+                self._clf = d.get("classifier") or d.get("svm") or d.get("knn")
+                self._le = d["label_encoder"]
+                self._current_model_type = self.model_type
+            except Exception as e:
+                self._error = f"Model load error: {str(e)}"
+                return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+        if not hasattr(self, "_frame_count"):
+            self._frame_count = 0
+            self._last_embeddings = []
+
+        self._frame_count += 1
+        do_detect = (self._frame_count % PROCESS_EVERY_N == 0)
+
+        cv2 = self.cv2
+        np = self.np
+
+        if do_detect:
+            h, w = img.shape[:2]
+            scale_x = w / 320.0
+            scale_y = h / 240.0
+
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            small_detect = cv2.resize(rgb, (320, 240))
+            try:
+                boxes, probs = self._mtcnn.detect(small_detect)
+            except Exception:
+                boxes = None
+
+            self._last_embeddings = []
+            if boxes is not None:
+                for i, b in enumerate(boxes):
+                    if probs is not None and probs[i] < 0.8:
+                        continue
+                    x1 = int(max(0.0, b[0] * scale_x))
+                    y1 = int(max(0.0, b[1] * scale_y))
+                    x2 = int(min(w, b[2] * scale_x))
+                    y2 = int(min(h, b[3] * scale_y))
+                    if x2 - x1 < 30 or y2 - y1 < 30:
+                        continue
+                    try:
+                        face_crop = cv2.resize(img[y1:y2, x1:x2], (160, 160))
+                    except cv2.error:
+                        continue
+                    try:
+                        rgb2 = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+                        pil = self.Image.fromarray(rgb2)
+                        t = self._transform(pil).unsqueeze(0).to(_DEVICE)
+                        with torch.no_grad():
+                            emb = self._resnet(t).cpu().numpy().flatten()
+                    except Exception:
+                        continue
+                    if emb is None:
+                        continue
+                    ps = self._clf.predict_proba([emb])[0]
+                    pi = np.argmax(ps)
+                    conf = ps[pi]
+                    name = self._le.classes_[pi]
+                    self._last_embeddings.append((x1, y1, x2, y2, name, conf))
+
+        if self._last_embeddings:
+            for x1, y1, x2, y2, name, conf in self._last_embeddings:
+                if conf >= self.threshold:
+                    color = (0, 255, 0)
+                    label = f"{name} ({conf:.0%})"
+                    with self._pending_lock:
+                        if name not in self._pending:
+                            self._pending.append(name)
+                else:
+                    color = (0, 255, 255)
+                    label = f"{name}? ({conf:.0%})"
+                cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+                tw, th2 = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+                cv2.rectangle(img, (x1, y1 - th2 - 8), (x1 + tw + 8, y1), color, -1)
+                cv2.putText(img, label, (x1 + 4, y1 - 4),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
 @st.cache_data(ttl=60)
@@ -307,47 +216,27 @@ def main():
     for k, v in [
         ("attended", {}),
         ("log", []),
-        ("camera_running", False),
     ]:
         if k not in st.session_state:
             st.session_state[k] = v
 
-    cam = get_cam()
-
     sidebar = st.sidebar
     sidebar.title("Attendance")
     
-    # Dynamic real-time model loading status in sidebar
-    if hasattr(cam, "_heavy_initialized") and cam._heavy_initialized:
-        status_str = f"🟢 Ready ({_DEVICE_STR})"
-    else:
-        status_str = f"🟡 Loading models in background... ({_DEVICE_STR})"
-    sidebar.markdown(f"**Device status:** {status_str}")
+    sidebar.markdown(f"**Device status:** {_DEVICE_STR}")
 
     model_type = sidebar.radio("Classifier", ["SVM (RBF)", "KNN"], index=0,
-                               disabled=st.session_state.camera_running,
                                horizontal=True)
     model_key = "knn" if model_type.startswith("KNN") else "svm"
-    cam.model_type = model_key
 
-    c1, c2 = sidebar.columns(2)
-    start_btn = c1.button("Start", width="stretch", disabled=st.session_state.camera_running)
-    stop_btn = c2.button("Stop", width="stretch", disabled=not st.session_state.camera_running)
     threshold = sidebar.slider("Confidence", 0.0, 1.0, 0.5, 0.05)
-    cam.threshold = threshold
 
     if sidebar.button("Reset", width="stretch"):
-        cam.stop()
         st.session_state.attended = {}
         st.session_state.log = []
-        st.session_state.camera_running = False
         st.rerun()
 
     sidebar.markdown("---")
-    sidebar.markdown(
-        f"{'🟢' if st.session_state.camera_running else '🔴'} "
-        f"{'Running' if st.session_state.camera_running else 'Stopped'}"
-    )
     sidebar.markdown(f"**Model:** {'SVM (RBF)' if model_key == 'svm' else f'KNN (cosine)'}")
     sidebar.metric("Present", f"{len(st.session_state.log)} / 22")
 
@@ -355,49 +244,23 @@ def main():
         st.session_state.all_names = get_all_names()
     all_names = st.session_state.all_names
 
-    if start_btn and not st.session_state.camera_running:
-        cam.start(threshold, model_key)
-        st.session_state.camera_running = True
-        st.rerun()
-
-    if stop_btn and st.session_state.camera_running:
-        cam.stop()
-        st.session_state.camera_running = False
-        st.rerun()
-
-    if st.session_state.camera_running:
-        err = cam.error
-        if err:
-            st.error(f"Camera error: {err}")
-            st.session_state.camera_running = False
-            st.rerun()
-
     main_col, table_col = st.columns([3, 2])
 
     with main_col:
         st.subheader("Webcam Feed")
-        feed_placeholder = st.empty()
-
-    with table_col:
-        st.subheader("Attendance")
-        table_placeholder = st.empty()
-
-    # Active streaming loop inside a single script execution
-    if st.session_state.camera_running:
-        while st.session_state.camera_running:
-            if not cam.is_running:
-                feed_placeholder.error("Camera stopped unexpectedly")
-                st.session_state.camera_running = False
-                break
-
-            if cam.is_ready:
-                jpg = cam.get_jpeg()
-                if jpg is not None:
-                    feed_placeholder.image(jpg, channels="BGR", width="stretch")
-            else:
-                feed_placeholder.info("Starting camera & loading models...")
-
-            new_faces = cam.pop_pending()
+        
+        webrtc_ctx = webrtc_streamer(
+            key="face-attendance",
+            video_processor_factory=FaceRecognizerProcessor,
+            rtc_configuration=RTC_CONFIGURATION,
+            media_stream_constraints={"video": True, "audio": False},
+        )
+        
+        if webrtc_ctx.video_processor:
+            webrtc_ctx.video_processor.threshold = threshold
+            webrtc_ctx.video_processor.model_type = model_key
+            
+            new_faces = webrtc_ctx.video_processor.pop_pending()
             if new_faces:
                 now = datetime.now().strftime("%H:%M:%S")
                 log_changed = False
@@ -411,16 +274,12 @@ def main():
                     if "csv" in st.session_state:
                         del st.session_state["csv"]
 
-            table_placeholder.markdown(
-                make_attendance_html(st.session_state.log, all_names),
-                unsafe_allow_html=True
-            )
+        if webrtc_ctx.state.playing:
+            st_autorefresh(interval=1000, limit=10000, key="attendance-refresh")
 
-            time.sleep(0.05)
-    else:
-        # Static view when camera is stopped
-        feed_placeholder.info("Click 'Start' to activate the webcam feed.")
-        table_placeholder.markdown(
+    with table_col:
+        st.subheader("Attendance")
+        st.markdown(
             make_attendance_html(st.session_state.log, all_names),
             unsafe_allow_html=True
         )
