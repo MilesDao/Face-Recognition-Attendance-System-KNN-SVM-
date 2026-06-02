@@ -20,8 +20,7 @@ face-class-cosine/
 ├── requirements.txt
 ├── .gitignore
 └── report/
-    ├── report_en.tex             # English report
-    └── report.tex                # Vietnamese report
+    └── report_en.tex             # English report
 ```
 
 ## Pipeline

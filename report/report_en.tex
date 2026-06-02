@@ -104,7 +104,7 @@ MTCNN (Multi-task Cascaded Convolutional Networks) is a state-of-the-art face de
 \subsection{Results}
 \label{subsec:extract_results}
 
-A total of \textbf{320 face images} were extracted from 22 videos. Table~\ref{tab:extract_summary} shows the per-student distribution.
+A total of \textbf{306 face images} were extracted from 22 videos. Table~\ref{tab:extract_summary} shows the per-student distribution.
 
 \begin{table}[H]
     \centering
@@ -115,34 +115,34 @@ A total of \textbf{320 face images} were extracted from 22 videos. Table~\ref{ta
         \textbf{Student} & \textbf{Faces} \\
         \midrule
         daochitrung\_23ba14295      & 13 \\
-        dohoanglong\_2410559        & 33 \\
+        dohoanglong\_2410559        & 9  \\
         dohunganh\_23ba14011        & 24 \\
         duongtunganh\_2410024       & 10 \\
-        kieuminhduc\_2411138        & 4  \\
-        lehuuduc2411139             & 22 \\
-        lethanhtra\_2410980         & 9  \\
-        letrongtien\_23ba14280      & 8  \\
-        luuminhhoang\_23BA14119     & 8  \\
+        kieuminhduc\_2411138        & 11 \\
+        lehuuduc\_2411139            & 11 \\
+        lethanhtra\_2410980         & 17 \\
+        letrongtien\_23ba14280      & 16 \\
+        luuminhhoang\_23BA14119     & 16 \\
         nguyenbinhduong\_22BA13091  & 13 \\
-        nguyendinhgiang\_23ba14089  & 4  \\
+        nguyendinhgiang\_23ba14089  & 18 \\
         nguyendinhminhquang\_23BA14244 & 16 \\
         nguyenhong\_truong\_23BA14300 & 10 \\
-        nguyenkhaiminh\_2410607     & 9  \\
-        nguyenmy\_2410678           & 7  \\
+        nguyenkhaiminh\_2410607     & 11 \\
+        nguyenmy\_2410678           & 12 \\
         nguyenngochieu\_23BA14109   & 12 \\
-        nguyennguyennhat\_23BA14222 & 44 \\
+        nguyennguyennhat\_23BA14222 & 13 \\
         nguyentathoangviet\_23BA14320 & 23 \\
-        phanduyhoang\_23BA14117     & 17 \\
-        phanminhtrang\_23BA14290    & 12 \\
-        tranmanhhung\_23BA14127     & 10 \\
+        phanduyhoang\_23BA14117     & 12 \\
+        phanminhtrang\_23BA14290    & 10 \\
+        tranmanhhung\_23BA14127     & 17 \\
         transonbach\_2410136        & 12 \\
         \midrule
-        \textbf{Total} & \textbf{320} \\
+        \textbf{Total} & \textbf{306} \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-Observation: The number of images per class is highly imbalanced (ranging from 4 to 44), which motivates the need for data augmentation.
+Observation: The number of images per class is relatively balanced (ranging from 9 to 24), which motivates the need for data augmentation.
 
 \newpage
 
@@ -168,23 +168,23 @@ Each original image produces 4 augmented versions (one per transformation), incr
 \subsection{Results}
 \label{subsec:augment_results}
 
-After augmentation, the dataset grew from \textbf{320 to 1,600 images}. Figure~\ref{fig:dist_before} and Figure~\ref{fig:dist_after} show the distribution before and after augmentation.
+After augmentation, the dataset grew from \textbf{306 to 1,530 images}. Figure~\ref{fig:dist_before} and Figure~\ref{fig:dist_after} show the distribution before and after augmentation.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/distribution_before.pdf}
-    \caption{Data distribution before augmentation (320 images, 22 classes)}
+    \caption{Data distribution before augmentation (306 images, 22 classes)}
     \label{fig:dist_before}
 \end{figure}
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/distribution_after.pdf}
-    \caption{Data distribution after augmentation (1,600 images, 22 classes)}
+    \caption{Data distribution after augmentation (1,530 images, 22 classes)}
     \label{fig:dist_after}
 \end{figure}
 
-The augmentation balanced the class sizes significantly (from 4--44 to 20--220 per class), enabling the model to learn better representations for under-represented classes.
+The augmentation balanced the class sizes significantly (from 9--24 to 45--120 per class), enabling the model to learn better representations for under-represented classes.
 
 \newpage
 
@@ -260,7 +260,7 @@ The optimal $k$ is found via 5-fold cross-validation on the training set over $k
 \subsection{Results}
 \label{subsec:training_results}
 
-Table~\ref{tab:comparison} compares the two classifiers on the same test set (320 samples).
+Table~\ref{tab:comparison} compares the two classifiers on the same test set (306 samples).
 
 \begin{table}[H]
     \centering
@@ -270,16 +270,16 @@ Table~\ref{tab:comparison} compares the two classifiers on the same test set (32
         \toprule
         \textbf{Metric} & \textbf{SVM (RBF)} & \textbf{KNN (k=1, cosine)} \\
         \midrule
-        Test Accuracy (\%) & 99.69 & 99.69 \\
-        Mean Confidence (\%) & 85.04 & 100.00 \\
-        Training Time (s) & 2.38 & 0.00 \\
-        Inference / 1000 samples (ms) & 0.77 & 0.21 \\
+        Test Accuracy (\%) & 100.00 & 100.00 \\
+        Mean Confidence (\%) & 80.88 & 100.00 \\
+        Training Time (s) & 0.52 & 0.00 \\
+        Inference / 1000 samples (ms) & 0.79 & 0.14 \\
         Parameters & $C=10$, $\gamma=\text{scale}$ & $k=1$, cosine \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-Both models achieve identical accuracy of \textbf{99.69\%} on the test set. Figure~\ref{fig:comparison} visualizes the differences across multiple metrics.
+Both models achieve identical accuracy of \textbf{100.00\%} on the test set. Figure~\ref{fig:comparison} visualizes the differences across multiple metrics.
 
 \begin{figure}[H]
     \centering
@@ -346,7 +346,7 @@ To visualize the 512-dimensional embedding space, we apply PCA (Principal Compon
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/embedding_pca.pdf}
-    \caption{PCA projection of face embedding vectors from test video}
+    \caption{PCA projection of face embedding vectors from augmented training dataset}
     \label{fig:embedding_pca}
 \end{figure}
 
@@ -401,8 +401,8 @@ face-class-cosine/
 ├── app.py                          # Streamlit real-time attendance app
 ├── train_comparison.py             # Comparative training (SVM + KNN)
 ├── dataset/
-│   ├── train_raw/                  # Raw extracted faces (320 images)
-│   └── train_augmented/            # Augmented dataset (1,600 images)
+│   ├── train_raw/                  # Raw extracted faces (306 images)
+│   └── train_augmented/            # Augmented dataset (1,530 images)
 ├── figures/                        # Generated figures (PDF)
 │   ├── distribution_before.pdf
 │   ├── distribution_after.pdf
@@ -410,7 +410,6 @@ face-class-cosine/
 │   └── svm_vs_knn_comparison.pdf
 ├── models/                         # Legacy model storage
 ├── report/
-│   ├── report.tex                  # Vietnamese report
 │   └── report_en.tex               # English report (this document)
 ├── test-data/                      # Test videos
 └── Video_/                         # Original input videos
@@ -456,10 +455,10 @@ face-class-cosine/
 This project successfully built a complete face recognition pipeline from video data and compared two classifiers:
 
 \begin{itemize}
-    \item Extracted 320 face images from 22 classroom videos using MTCNN.
-    \item Augmented the dataset to 1,600 images with four transformation types.
-    \item Trained both SVM (RBF kernel, $C=10$) and KNN (cosine distance, $k=1$) on FaceNet embeddings, with both achieving \textbf{99.69\%} test accuracy.
-    \item SVM provides more realistic confidence scores (85.04\%), while KNN offers instant training and faster inference.
+    \item Extracted 306 face images from 22 classroom videos using MTCNN.
+    \item Augmented the dataset to 1,530 images with four transformation types.
+    \item Trained both SVM (RBF kernel, $C=10$) and KNN (cosine distance, $k=1$) on FaceNet embeddings, with both achieving \textbf{100.00\%} test accuracy.
+    \item SVM provides more realistic confidence scores (80.88\%), while KNN offers instant training and faster inference.
     \item Deployed a real-time attendance system with Streamlit supporting both classifiers, model selection, and CSV export.
 \end{itemize}
 

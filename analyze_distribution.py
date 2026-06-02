@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 RAW_DIR = Path("dataset/train_raw")
 AUG_DIR = Path("dataset/train_augmented")
 FIGURES_DIR = Path("figures")
-EMBEDDING_FILE = Path("vid2_embeddings.npz")
+EMBEDDING_FILE = Path("train_embeddings.npz")
 
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 

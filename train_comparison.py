@@ -248,6 +248,10 @@ def main():
     logger.info(f"  {'Inference/1000 samples (ms)':<25} {svm_infer_time*1000:<15.4f} {knn_infer_time*1000:<15.4f}")
     logger.info(f"  {'Parameters':<25} {'C=10, gamma=scale':<15} {f'k={best_k}, cosine':<15}")
     logger.info("=" * 55)
+    
+    # Save the embeddings to train_embeddings.npz for analyze_distribution.py to use!
+    np.savez("train_embeddings.npz", embeddings=embeddings, labels=valid_labels)
+    logger.info("Saved embeddings to train_embeddings.npz")
 
 
 if __name__ == "__main__":
