@@ -29,6 +29,8 @@ ice_servers = [
 ]
 
 has_turn_server = False
+
+# Option A: Check for static credentials
 if "TURN_URL" in st.secrets and "TURN_USERNAME" in st.secrets and "TURN_CREDENTIAL" in st.secrets:
     ice_servers.append({
         "urls": [st.secrets["TURN_URL"]],
@@ -36,6 +38,26 @@ if "TURN_URL" in st.secrets and "TURN_USERNAME" in st.secrets and "TURN_CREDENTI
         "credential": st.secrets["TURN_CREDENTIAL"]
     })
     has_turn_server = True
+
+# Option B: Check for Metered API key to fetch dynamically at runtime
+elif "METERED_API_KEY" in st.secrets:
+    import urllib.request
+    import json
+    try:
+        api_key = st.secrets["METERED_API_KEY"]
+        domain = st.secrets.get("METERED_DOMAIN", "face-recog.metered.live")
+        url = f"https://{domain}/api/v1/turn/credentials?apiKey={api_key}"
+        
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            if response.status == 200:
+                fetched_servers = json.loads(response.read().decode())
+                if isinstance(fetched_servers, list):
+                    ice_servers.extend(fetched_servers)
+                    has_turn_server = True
+    except Exception as e:
+        # Fallback to STUN servers if the API call fails
+        pass
 
 RTC_CONFIGURATION = RTCConfiguration({"iceServers": ice_servers})
 
