@@ -16,7 +16,21 @@ PROCESS_EVERY_N = 8
 REFRESH_MS = 200
 
 RTC_CONFIGURATION = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]}
+    {
+        "iceServers": [
+            {
+                "urls": [
+                    "stun:stun.l.google.com:19302",
+                    "stun:stun1.l.google.com:19302",
+                    "stun:stun2.l.google.com:19302",
+                    "stun:stun.services.mozilla.com",
+                    "stun:stun.l.google.com:3478",
+                    "stun:stun1.l.google.com:3478",
+                    "stun:stun2.l.google.com:3478",
+                ]
+            }
+        ]
+    }
 )
 
 import torch
@@ -181,7 +195,7 @@ FALLBACK_NAMES = [
     "lethanhtra_2410980",
     "letrongtien_23ba14280",
     "luuminhhoang_23BA14119",
-    "nguyenbinhduong_22BA13091",
+    "dangbinhduong_22BA13091",
     "nguyendinhgiang_23ba14089",
     "nguyendinhminhquang_23BA14244",
     "nguyenhong_truong_23BA14300",

@@ -86,7 +86,7 @@ During the initial extraction, some low-quality or misaligned face crops were in
     \item Non-face artifacts detected as faces were removed.
     \item Duplicate frames with poor alignment were eliminated.
 \end{itemize}
-This reduced the raw dataset from 320 to 306 images, ensuring only high-quality face crops were used for training.
+This reduced the raw dataset from 320 to 301 images, ensuring only high-quality face crops were used for training.
 
 \newpage
 
@@ -113,7 +113,7 @@ MTCNN (Multi-task Cascaded Convolutional Networks) is a state-of-the-art face de
 \subsection{Results}
 \label{subsec:extract_results}
 
-After noise removal, a total of \textbf{306 face images} were kept from 22 videos. Table~\ref{tab:extract_summary} shows the per-student distribution.
+After noise removal, a total of \textbf{301 face images} were kept from 22 videos. Table~\ref{tab:extract_summary} shows the per-student distribution.
 
 \begin{table}[H]
     \centering
@@ -132,8 +132,8 @@ After noise removal, a total of \textbf{306 face images} were kept from 22 video
         lethanhtra\_2410980         & 17 \\
         letrongtien\_23ba14280      & 16 \\
         luuminhhoang\_23BA14119     & 16 \\
-        nguyenbinhduong\_22BA13091  & 13 \\
-        nguyendinhgiang\_23ba14089  & 18 \\
+        dangbinhduong\_22BA13091  & 13 \\
+        nguyendinhgiang\_23ba14089  & 13 \\
         nguyendinhminhquang\_23BA14244 & 16 \\
         nguyenhong\_truong\_23BA14300 & 10 \\
         nguyenkhaiminh\_2410607     & 11 \\
@@ -146,7 +146,7 @@ After noise removal, a total of \textbf{306 face images} were kept from 22 video
         tranmanhhung\_23BA14127     & 17 \\
         transonbach\_2410136        & 12 \\
         \midrule
-        \textbf{Total} & \textbf{306} \\
+        \textbf{Total} & \textbf{301} \\
         \bottomrule
     \end{tabular}
 \end{table}
@@ -177,19 +177,19 @@ Each original image produces 4 augmented versions, increasing the dataset size b
 \subsection{Results}
 \label{subsec:augment_results}
 
-After augmentation, the dataset grew from \textbf{306 to 1,530 images}. The per-class distribution is more uniform (45--120 images per class) compared to the original imbalanced extraction (4--44). Figure~\ref{fig:dist_before} and Figure~\ref{fig:dist_after} show the distribution before and after augmentation.
+After augmentation, the dataset grew from \textbf{301 to 1,505 images}. The per-class distribution is more uniform (45--120 images per class) compared to the original imbalanced extraction (4--44). Figure~\ref{fig:dist_before} and Figure~\ref{fig:dist_after} show the distribution before and after augmentation.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/distribution_before.pdf}
-    \caption{Data distribution before augmentation (306 images, 22 classes)}
+    \includegraphics[width=\textwidth]{figures/distribution_before.png}
+    \caption{Data distribution before augmentation (301 images, 22 classes)}
     \label{fig:dist_before}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/distribution_after.pdf}
-    \caption{Data distribution after augmentation (1,530 images, 22 classes)}
+    \includegraphics[width=\textwidth]{figures/distribution_after.png}
+    \caption{Data distribution after augmentation (1,505 images, 22 classes)}
     \label{fig:dist_after}
 \end{figure}
 
@@ -261,21 +261,35 @@ With the cleaned dataset, both classifiers achieved \textbf{100\% test accuracy}
         \textbf{Metric} & \textbf{SVM (RBF)} & \textbf{KNN (k=1, cosine)} \\
         \midrule
         Test Accuracy (\%) & 100.00 & 100.00 \\
-        Mean Confidence (\%) & 80.88 & 100.00 \\
-        Training Time (s) & 0.57 & 0.00 \\
-        Inference / sample (ms) & 0.31 & 0.04 \\
+        Mean Confidence (\%) & 80.78 & 100.00 \\
+        Training Time (s) & 0.53 & 0.00 \\
+        Inference / sample (ms) & 0.20 & 0.05 \\
         Parameters & $C=10$, $\gamma=\text{scale}$ & $k=1$, cosine \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-Both models achieve perfect accuracy. SVM provides more realistic confidence scores (80.88\%), reflecting true prediction uncertainty, while KNN with $k=1$ always assigns 100\% confidence. Figure~\ref{fig:comparison} visualizes the comparison across all metrics.
+Both models achieve perfect accuracy. SVM provides more realistic confidence scores (80.78\%), reflecting true prediction uncertainty, while KNN with $k=1$ always assigns 100\% confidence. The following figures break down the comparison across different metrics.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/svm_vs_knn_comparison.pdf}
-    \caption{SVM vs KNN comparison: accuracy/confidence (top-left), training/inference time (top-right), KNN k-value cross-validation (bottom-left), and summary table (bottom-right).}
-    \label{fig:comparison}
+    \includegraphics[width=0.72\textwidth]{figures/svm_vs_knn_accuracy.png}
+    \caption{Accuracy and mean confidence comparison between SVM (RBF) and KNN. Both classifiers achieve 100\% accuracy, but SVM provides a more realistic confidence estimate (80.78\% vs 100\%).}
+    \label{fig:accuracy}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\textwidth]{figures/svm_vs_knn_timing.png}
+    \caption{Training and inference time comparison (log scale). KNN trains instantly (0.00s) and has faster per-sample inference (0.05ms) compared to SVM (0.53s training, 0.20ms inference).}
+    \label{fig:timing}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.72\textwidth]{figures/knn_parameter_search.png}
+    \caption{KNN hyperparameter search: 5-fold cross-validation accuracy across different values of $k$. The optimal $k=1$ achieves 100\% CV accuracy, with accuracy decreasing as $k$ increases due to underfitting in the well-separated embedding space.}
+    \label{fig:knn_search}
 \end{figure}
 
 \subsection{Strengths and Weaknesses}
@@ -333,7 +347,7 @@ To visualize the 512-dimensional embedding space, PCA (Principal Component Analy
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{figures/embedding_pca.pdf}
+    \includegraphics[width=\textwidth]{figures/embedding_pca.png}
     \caption{PCA projection of face embedding vectors from test data}
     \label{fig:embedding_pca}
 \end{figure}
@@ -390,13 +404,15 @@ face-class-cosine/
 ├── .gitignore
 ├── README.md
 ├── dataset/
-│   ├── train_raw/                  # Cleaned raw extracted faces (306 images)
-│   └── train_augmented/            # Augmented dataset (1,530 images)
+│   ├── train_raw/                  # Cleaned raw extracted faces (301 images)
+│   └── train_augmented/            # Augmented dataset (1,505 images)
 ├── figures/
 │   ├── distribution_before.pdf
 │   ├── distribution_after.pdf
 │   ├── embedding_pca.pdf
-│   └── svm_vs_knn_comparison.pdf
+│       ├── svm_vs_knn_accuracy.pdf
+    ├── svm_vs_knn_timing.pdf
+    └── knn_parameter_search.pdf
 ├── models/                         # Legacy model storage
 ├── report/
 │   ├── report.tex                  # Vietnamese report

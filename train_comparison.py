@@ -2,6 +2,8 @@ import numpy as np
 import pickle
 import time
 import logging
+import torch
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -10,10 +12,54 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-logger.info("Loading cached embeddings...")
-data = np.load("train_embeddings.npz")
-embeddings = data["embeddings"]
-label_strings = data["labels"]
+CACHE_FILE = "train_embeddings.npz"
+
+if not Path(CACHE_FILE).exists():
+    logger.info("No embeddings cache found. Computing embeddings from scratch...")
+    from facenet_pytorch import InceptionResnetV1
+    from PIL import Image
+    from torchvision import transforms
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    resnet = InceptionResnetV1(pretrained="vggface2").eval().to(device)
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+    ])
+
+    DATA_DIR = Path("dataset/train_augmented")
+    image_paths, label_strings = [], []
+    for person_dir in sorted(DATA_DIR.iterdir()):
+        if not person_dir.is_dir():
+            continue
+        imgs = sorted(person_dir.glob("*.jpg"))
+        for img_path in imgs:
+            image_paths.append(img_path)
+            label_strings.append(person_dir.name)
+
+    logger.info(f"Computing embeddings for {len(image_paths)} images...")
+    embeddings_list = []
+    valid_labels = []
+    with torch.no_grad():
+        for i, img_path in enumerate(image_paths):
+            try:
+                img = Image.open(img_path).convert("RGB")
+                img_tensor = transform(img).unsqueeze(0).to(device)
+                emb = resnet(img_tensor).cpu().numpy().flatten()
+                embeddings_list.append(emb)
+                valid_labels.append(label_strings[i])
+            except Exception as e:
+                logger.warning(f"  Error processing {img_path}: {e}")
+            if (i + 1) % 200 == 0:
+                logger.info(f"  Progress: {i + 1}/{len(image_paths)}")
+    embeddings = np.array(embeddings_list)
+    label_strings = valid_labels
+    np.savez(CACHE_FILE, embeddings=embeddings, labels=label_strings)
+    logger.info(f"Embeddings saved to {CACHE_FILE}")
+else:
+    logger.info("Loading cached embeddings...")
+    data = np.load(CACHE_FILE)
+    embeddings = data["embeddings"]
+    label_strings = data["labels"]
 
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.svm import SVC
@@ -77,146 +123,102 @@ with open("knn/knn_face_classifier.pkl", "wb") as f:
     pickle.dump({"classifier": knn, "label_encoder": le, "type": "knn", "best_k": best_k}, f)
 logger.info("Models saved")
 
-# ─── Beautiful comparison figure ───
+# ─── Plot style ───
 plt.rcParams.update({
     "font.family": "sans-serif",
     "font.sans-serif": ["Segoe UI", "DejaVu Sans"],
-    "font.size": 11,
+    "font.size": 12,
     "axes.facecolor": "#f8f9fa",
     "figure.facecolor": "white",
 })
-CB_blue = "#4361ee"
-CB_orange = "#f72585"
+BLUE = "#4361ee"
+ORANGE = "#f72585"
+DARK = "#2b2d42"
+w = 0.30
 
-fig = plt.figure(figsize=(18, 7))
-gs = fig.add_gridspec(2, 4, width_ratios=[1, 1, 1.3, 1], hspace=0.35, wspace=0.3)
-
-# ─── Panel 1: Accuracy & Confidence ───
-ax1 = fig.add_subplot(gs[:, 0])
+# ─── Figure 1: Accuracy & Confidence ───
+fig1, ax1 = plt.subplots(figsize=(7, 5.5))
 metrics = ["Accuracy", "Confidence"]
 x = np.arange(len(metrics))
-w = 0.30
-bars1 = ax1.bar(x - w/2, [svm_acc*100, svm_conf*100], w, color=CB_blue,
-                edgecolor="white", linewidth=1.2, label="SVM (RBF)", zorder=3)
-bars2 = ax1.bar(x + w/2, [knn_acc*100, knn_conf*100], w, color=CB_orange,
-                edgecolor="white", linewidth=1.2, label=f"KNN (k={best_k})", zorder=3)
-
-for bars in [bars1, bars2]:
+b1 = ax1.bar(x - w/2, [svm_acc*100, svm_conf*100], w, color=BLUE,
+             edgecolor="white", linewidth=1.2, label="SVM (RBF)", zorder=3)
+b2 = ax1.bar(x + w/2, [knn_acc*100, knn_conf*100], w, color=ORANGE,
+             edgecolor="white", linewidth=1.2, label=f"KNN (k={best_k})", zorder=3)
+for bars in [b1, b2]:
     for bar in bars:
         val = bar.get_height()
         ax1.text(bar.get_x() + bar.get_width()/2, val + 1.5, f"{val:.1f}%",
-                ha="center", va="bottom", fontsize=11, fontweight="bold", color="#333")
-
-ax1.set_ylim(0, 112)
-ax1.set_ylabel("Percentage (%)", fontsize=12)
-ax1.set_title("Accuracy & Confidence", fontsize=14, fontweight="bold", pad=12)
-ax1.legend(frameon=True, facecolor="white", edgecolor="#ddd", fontsize=10)
+                ha="center", va="bottom", fontsize=12, fontweight="bold", color=DARK)
+ax1.set_ylim(0, 115)
+ax1.set_ylabel("Percentage (%)", fontsize=13)
+ax1.set_title("Accuracy & Confidence Comparison", fontsize=15, fontweight="bold", pad=14)
+ax1.legend(frameon=True, facecolor="white", edgecolor="#ddd", fontsize=11)
 ax1.set_xticks(x)
-ax1.set_xticklabels(metrics, fontsize=12)
-ax1.grid(axis="y", alpha=0.3, zorder=0)
+ax1.set_xticklabels(metrics, fontsize=13)
 ax1.spines["top"].set_visible(False)
 ax1.spines["right"].set_visible(False)
+ax1.grid(axis="y", alpha=0.3, zorder=0)
+plt.tight_layout()
+fig1.savefig("figures/svm_vs_knn_accuracy.png", bbox_inches="tight", dpi=200)
+logger.info("Saved figures/svm_vs_knn_accuracy.png")
+plt.close(fig1)
 
-# ─── Panel 2: Training & Inference Time ───
-ax2 = fig.add_subplot(gs[:, 1])
+# ─── Figure 2: Training & Inference Time ───
+fig2, ax2 = plt.subplots(figsize=(7, 5.5))
 timing = ["Training\n(seconds)", "Inference\n(ms/sample)"]
 svm_t = [svm_train, svm_infer*1000]
 knn_t = [knn_train, knn_infer*1000]
 x2 = np.arange(len(timing))
-bars1 = ax2.bar(x2 - w/2, svm_t, w, color=CB_blue,
-                edgecolor="white", linewidth=1.2, label="SVM (RBF)", zorder=3)
-bars2 = ax2.bar(x2 + w/2, knn_t, w, color=CB_orange,
-                edgecolor="white", linewidth=1.2, label=f"KNN (k={best_k})", zorder=3)
-
+b1 = ax2.bar(x2 - w/2, svm_t, w, color=BLUE,
+             edgecolor="white", linewidth=1.2, label="SVM (RBF)", zorder=3)
+b2 = ax2.bar(x2 + w/2, knn_t, w, color=ORANGE,
+             edgecolor="white", linewidth=1.2, label=f"KNN (k={best_k})", zorder=3)
 ax2.set_yscale("log")
-for bars, vals in [(bars1, svm_t), (bars2, knn_t)]:
+for bars, vals in [(b1, svm_t), (b2, knn_t)]:
     for bar, val in zip(bars, vals):
-        ax2.text(bar.get_x() + bar.get_width()/2, val * 1.2, f"{val:.3f}",
-                ha="center", va="bottom", fontsize=10, fontweight="bold", color="#333")
-
-ax2.set_ylabel("Time (log scale)", fontsize=12)
-ax2.set_title("Training & Inference Time", fontsize=14, fontweight="bold", pad=12)
+        ax2.text(bar.get_x() + bar.get_width()/2, val * 1.3, f"{val:.4f}",
+                ha="center", va="bottom", fontsize=10, fontweight="bold", color=DARK)
+ax2.set_ylabel("Time (log scale)", fontsize=13)
+ax2.set_title("Training & Inference Time", fontsize=15, fontweight="bold", pad=14)
 ax2.set_xticks(x2)
-ax2.set_xticklabels(timing, fontsize=11)
-ax2.legend(frameon=True, facecolor="white", edgecolor="#ddd", fontsize=10)
-ax2.grid(axis="y", alpha=0.3, zorder=0)
+ax2.set_xticklabels(["Training (seconds)", "Inference (ms/sample)"], fontsize=12)
+ax2.legend(frameon=True, facecolor="white", edgecolor="#ddd", fontsize=11)
 ax2.spines["top"].set_visible(False)
 ax2.spines["right"].set_visible(False)
+ax2.grid(axis="y", alpha=0.3, zorder=0)
+plt.tight_layout()
+fig2.savefig("figures/svm_vs_knn_timing.png", bbox_inches="tight", dpi=200)
+logger.info("Saved figures/svm_vs_knn_timing.png")
+plt.close(fig2)
 
-# ─── Panel 3: KNN k-value search ───
-ax3 = fig.add_subplot(gs[:, 2])
+# ─── Figure 3: KNN Parameter Search ───
+fig3, ax3 = plt.subplots(figsize=(8, 5.5))
 ks = list(knn_scores.keys())
 scores = [knn_scores[k]*100 for k in ks]
-ax3.plot(ks, scores, "o-", color=CB_orange, linewidth=2.5, markersize=10,
+ax3.plot(ks, scores, "o-", color=ORANGE, linewidth=2.5, markersize=10,
          zorder=3, markerfacecolor="white", markeredgewidth=2)
-ax3.axvline(x=best_k, color="#2b2d42", linestyle="--", linewidth=1.5, alpha=0.7,
+ax3.axvline(x=best_k, color=DARK, linestyle="--", linewidth=1.5, alpha=0.7,
             label=f"Best k = {best_k}")
-ax3.scatter([best_k], [knn_scores[best_k]*100], color=CB_orange, s=150, zorder=4,
-            edgecolor="#2b2d42", linewidth=2)
-ax3.set_xlabel("k (number of neighbors)", fontsize=12)
-ax3.set_ylabel("5-fold CV Accuracy (%)", fontsize=12)
-ax3.set_title("KNN Parameter Search", fontsize=14, fontweight="bold", pad=12)
-ax3.legend(frameon=True, facecolor="white", edgecolor="#ddd", fontsize=10)
+ax3.scatter([best_k], [knn_scores[best_k]*100], color=ORANGE, s=150, zorder=4,
+            edgecolor=DARK, linewidth=2)
+ax3.set_xlabel("k (number of neighbors)", fontsize=13)
+ax3.set_ylabel("5-fold Cross-Validation Accuracy (%)", fontsize=13)
+ax3.set_title("KNN Hyperparameter Search", fontsize=15, fontweight="bold", pad=14)
+ax3.legend(frameon=True, facecolor="white", edgecolor="#ddd", fontsize=11)
 ax3.set_xticks(ks)
-ax3.grid(alpha=0.3, zorder=0)
 ax3.spines["top"].set_visible(False)
 ax3.spines["right"].set_visible(False)
-
-ax3.annotate(f"Best k = {best_k}\nCV = {knn_scores[best_k]*100:.2f}%",
+ax3.grid(alpha=0.3, zorder=0)
+ax3.annotate(f"Best k = {best_k}\nCV Accuracy = {knn_scores[best_k]*100:.2f}%",
              xy=(best_k, knn_scores[best_k]*100),
-             xytext=(best_k + 1.5, knn_scores[best_k]*100 - 0.5),
-             fontsize=10, fontweight="bold", color="#2b2d42",
-             arrowprops=dict(arrowstyle="->", color="#2b2d42", lw=1.5),
-             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#ddd"))
-
-# ─── Panel 4: Summary table ───
-ax4 = fig.add_subplot(gs[:, 3])
-ax4.axis("off")
-
-table_data = [
-    ["Metric", "SVM (RBF)", f"KNN (k={best_k})"],
-    ["Test Accuracy", f"{svm_acc*100:.2f}%", f"{knn_acc*100:.2f}%"],
-    ["Mean Confidence", f"{svm_conf*100:.2f}%", f"{knn_conf*100:.2f}%"],
-    ["Training Time", f"{svm_train:.2f}s", f"{knn_train:.2f}s"],
-    ["Inference / sample", f"{svm_infer*1000:.4f}ms", f"{knn_infer*1000:.4f}ms"],
-    ["Parameters", "C=10, RBF", f"k={best_k}, cosine"],
-]
-
-table = ax4.table(cellText=table_data, loc="center", cellLoc="center",
-                  colWidths=[0.2, 0.18, 0.18])
-table.auto_set_font_size(False)
-table.set_fontsize(10)
-table.scale(1, 1.6)
-
-for j in range(3):
-    cell = table[0, j]
-    cell.set_facecolor("#2b2d42")
-    cell.set_text_props(color="white", fontweight="bold", fontsize=11)
-    cell.set_edgecolor("#2b2d42")
-
-colors_row = ["white", "#f0f1f3"]
-for i in range(1, len(table_data)):
-    bg = colors_row[i % 2]
-    for j in range(3):
-        cell = table[i, j]
-        cell.set_facecolor(bg)
-        cell.set_edgecolor("#ddd")
-        cell.set_text_props(fontsize=10)
-
-table[1, 1].set_facecolor("#d4edda")
-table[1, 2].set_facecolor("#d4edda")
-table[4, 2].set_facecolor("#d4edda")
-
-ax4.set_title("Comparison Summary", fontsize=14, fontweight="bold", pad=12)
-
-fig.suptitle("SVM vs KNN - Face Recognition Performance Comparison",
-             fontsize=18, fontweight="bold", y=1.02, color="#2b2d42")
-
-plt.savefig("figures/svm_vs_knn_comparison.pdf", bbox_inches="tight", dpi=200,
-            facecolor="white", edgecolor="none")
-plt.savefig("figures/svm_vs_knn_comparison.png", bbox_inches="tight", dpi=200,
-            facecolor="white", edgecolor="none")
-logger.info("Figure saved to figures/")
+             xytext=(best_k + 1.8, knn_scores[best_k]*100 - 1.5),
+             fontsize=11, fontweight="bold", color=DARK,
+             arrowprops=dict(arrowstyle="->", color=DARK, lw=1.5),
+             bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#ddd"))
+plt.tight_layout()
+fig3.savefig("figures/knn_parameter_search.png", bbox_inches="tight", dpi=200)
+logger.info("Saved figures/knn_parameter_search.png")
+plt.close(fig3)
 
 # ─── Print summary ───
 print()
