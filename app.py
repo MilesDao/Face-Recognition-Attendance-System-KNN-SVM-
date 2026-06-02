@@ -129,7 +129,7 @@ class FaceRecognizerProcessor(VideoProcessorBase):
                     y1 = int(max(0.0, b[1] * scale_y))
                     x2 = int(min(w, b[2] * scale_x))
                     y2 = int(min(h, b[3] * scale_y))
-                    if x2 - x1 < 30 or y2 - y1 < 30:
+                    if x2 - x1 < 80 or y2 - y1 < 80:
                         continue
                     try:
                         face_crop = cv2.resize(img[y1:y2, x1:x2], (160, 160))

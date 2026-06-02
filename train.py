@@ -4,7 +4,8 @@ import numpy as np
 from pathlib import Path
 from facenet_pytorch import InceptionResnetV1
 from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import LabelEncoder
 import pickle
@@ -16,9 +17,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path("dataset/train_augmented")
-MODEL_DIR = Path("models")
-EMBEDDING_DIM = 512
-BATCH_SIZE = 32
+SVM_MODEL_DIR = Path("svm")
+KNN_MODEL_DIR = Path("knn")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
@@ -54,7 +54,8 @@ def compute_embeddings(image_paths):
 
 
 def main():
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    SVM_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    KNN_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     image_paths = []
     labels = []
@@ -83,7 +84,6 @@ def main():
 
     logger.info(f"Embedding shape: {embeddings.shape}")
     logger.info(f"Number of classes: {len(le.classes_)}")
-    logger.info(f"Classes: {list(le.classes_)}")
 
     X_train, X_test, y_train, y_test = train_test_split(
         embeddings, y, test_size=0.2, random_state=42, stratify=y
@@ -92,24 +92,48 @@ def main():
     logger.info(f"Training set: {X_train.shape[0]} samples")
     logger.info(f"Test set: {X_test.shape[0]} samples")
 
-    logger.info("Training SVM classifier...")
+    # 1. Train SVM
+    logger.info("\n=== Training SVM classifier ===")
     svm = SVC(kernel="rbf", C=10.0, gamma="scale", probability=True, random_state=42)
     svm.fit(X_train, y_train)
 
-    y_pred = svm.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    logger.info(f"Test accuracy: {accuracy:.4f}")
+    y_pred_svm = svm.predict(X_test)
+    accuracy_svm = accuracy_score(y_test, y_pred_svm)
+    logger.info(f"SVM Test accuracy: {accuracy_svm:.4f}")
+    logger.info(f"SVM Classification report:\n{classification_report(y_test, y_pred_svm, target_names=le.classes_)}")
 
-    report = classification_report(y_test, y_pred, target_names=le.classes_)
-    logger.info(f"Classification report:\n{report}")
+    svm_path = SVM_MODEL_DIR / "svm_face_classifier.pkl"
+    with open(svm_path, "wb") as f:
+        pickle.dump({"classifier": svm, "label_encoder": le, "type": "svm"}, f)
+    logger.info(f"SVM Model saved to {svm_path}")
 
-    model_path = MODEL_DIR / "svm_face_classifier.pkl"
-    with open(model_path, "wb") as f:
-        pickle.dump({"svm": svm, "label_encoder": le}, f)
-    logger.info(f"Model saved to {model_path}")
+    # 2. Train KNN
+    logger.info("\n=== Training KNN classifier (Cosine distance) ===")
+    knn_candidates = [1, 3, 5, 7, 9, 11, 15]
+    best_k = 1
+    best_cv = 0.0
 
-    proba = svm.predict_proba(X_test)
-    logger.info(f"Mean confidence on test set: {proba.max(axis=1).mean():.4f}")
+    for k in knn_candidates:
+        knn = KNeighborsClassifier(n_neighbors=k, metric="cosine", weights="distance")
+        scores = cross_val_score(knn, X_train, y_train, cv=5, scoring="accuracy")
+        mean_score = scores.mean()
+        if mean_score > best_cv:
+            best_cv = mean_score
+            best_k = k
+
+    logger.info(f"Best k={best_k} (CV accuracy={best_cv:.4f})")
+    best_knn = KNeighborsClassifier(n_neighbors=best_k, metric="cosine", weights="distance")
+    best_knn.fit(X_train, y_train)
+
+    y_pred_knn = best_knn.predict(X_test)
+    accuracy_knn = accuracy_score(y_test, y_pred_knn)
+    logger.info(f"KNN Test accuracy: {accuracy_knn:.4f}")
+    logger.info(f"KNN Classification report:\n{classification_report(y_test, y_pred_knn, target_names=le.classes_)}")
+
+    knn_path = KNN_MODEL_DIR / "knn_face_classifier.pkl"
+    with open(knn_path, "wb") as f:
+        pickle.dump({"classifier": best_knn, "label_encoder": le, "type": "knn", "best_k": best_k}, f)
+    logger.info(f"KNN Model saved to {knn_path}")
 
 
 if __name__ == "__main__":
