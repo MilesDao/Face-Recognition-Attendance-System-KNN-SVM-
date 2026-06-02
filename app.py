@@ -22,18 +22,22 @@ RTC_CONFIGURATION = RTCConfiguration(
                 "urls": [
                     "stun:stun.l.google.com:19302",
                     "stun:stun1.l.google.com:19302",
-                    "stun:stun.services.mozilla.com",
+                    "stun:stun2.l.google.com:19302",
+                    "stun:stun3.l.google.com:19302",
+                    "stun:stun4.l.google.com:19302",
                 ]
-            },
-            {
-                "urls": [
-                    "turn:openrelay.metered.ca:80",
-                    "turn:openrelay.metered.ca:443",
-                    "turn:openrelay.metered.ca:443?transport=tcp"
-                ],
-                "username": "openrelayproject",
-                "credential": "openrelayproject"
             }
+            # NOTE: If you deploy your app to a remote server (e.g. Streamlit Community Cloud) 
+            # and clients are behind restrictive firewalls/NATs, you will need a TURN server.
+            # Avoid using public shared/rate-limited credentials as they frequently fail.
+            # You can sign up for a free account at Metered.ca, Twilio, or Xirsys to get your own 
+            # secure TURN credentials and configure them here like this:
+            # ,
+            # {
+            #     "urls": ["turn:your-turn-server.com:443"],
+            #     "username": "your-username",
+            #     "credential": "your-credential"
+            # }
         ]
     }
 )
