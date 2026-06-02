@@ -264,9 +264,16 @@ def get_cam():
 
 @st.cache_data(ttl=60)
 def get_all_names():
+    path = Path("dataset/train_augmented")
+    if not path.exists():
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return []
     return sorted(set(
-        p.stem for p in Path("dataset/train_augmented").iterdir() if p.is_dir()
+        p.stem for p in path.iterdir() if p.is_dir()
     ))
+
 
 
 def split_name_id(folder_name):
