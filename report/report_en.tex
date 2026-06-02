@@ -1,0 +1,478 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{subcaption}
+
+\geometry{margin=2.5cm}
+
+\lstset{
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny,
+    backgroundcolor=\color{gray!10},
+}
+
+\title{\textbf{Face Recognition Attendance System}\\[0.5cm]
+\large{A Comparative Study of SVM and KNN Classifiers with FaceNet Embeddings}}
+\author{
+    Course: Image Processing and Recognition \\
+    Project: Face Classification Using Cosine Similarity
+}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Problem Statement}
+\label{sec:problem}
+
+Traditional classroom attendance methods --- such as calling names, passing paper sign-in sheets, or using ID cards --- are time-consuming, prone to errors, and easily falsified. These manual approaches are inefficient for large classes and do not integrate naturally with modern digital workflows.
+
+The goal of this project is to develop an automated, real-time face recognition attendance system with the following requirements:
+
+\begin{enumerate}
+    \item \textbf{Video-based enrollment}: Extract and enroll student faces from existing classroom videos, eliminating the need for dedicated enrollment sessions.
+    \item \textbf{Data augmentation}: Synthesize additional training samples from limited video data to improve classifier robustness.
+    \item \textbf{Classifier comparison}: Evaluate and compare two popular classification approaches --- Support Vector Machines (SVM) and K-Nearest Neighbors (KNN) --- on the same FaceNet embedding space to identify their respective strengths and weaknesses in a face recognition context.
+    \item \textbf{Real-time inference}: Recognize students from a live webcam feed with minimal latency, using GPU acceleration.
+    \item \textbf{Interactive interface}: Provide a user-friendly web interface for instructors to start/stop the camera, select the classifier, set confidence thresholds, and export attendance records.
+\end{enumerate}
+
+By comparing SVM and KNN on the same feature extraction backbone, this project aims to provide practical guidance on classifier selection for small-to-medium scale face recognition systems.
+
+\section{Introduction}
+\label{sec:intro}
+
+Face recognition is one of the most important problems in computer vision, with applications ranging from security and surveillance to attendance tracking and human-computer interaction. This project aims to build a complete face recognition pipeline that extracts faces from classroom videos, trains classifiers on FaceNet embeddings, and deploys a real-time attendance system via a web interface.
+
+The project is structured into four main phases:
+\begin{enumerate}
+    \item \textbf{Face Extraction}: Detect and crop faces from 22 classroom videos using MTCNN.
+    \item \textbf{Data Augmentation}: Enrich the dataset with geometric and photometric transformations.
+    \item \textbf{Model Training}: Extract 512-dimensional FaceNet embeddings and train two classifiers --- SVM (RBF kernel) and KNN (cosine distance) --- for comparison.
+    \item \textbf{Real-time Application}: Deploy a Streamlit-based attendance system with live webcam feed, model selection, and CSV export.
+\end{enumerate}
+
+All deep learning inference (MTCNN, FaceNet) runs on GPU (CUDA 12.4) for real-time performance.
+
+\subsection{Dataset}
+\label{subsec:data}
+
+The input dataset consists of 22 video files (\texttt{.mov}) of 22 students, stored in the \texttt{Video\_/} directory. Each video ranges from 5 to 25 seconds recorded at 30 fps. An additional 5 test videos (\texttt{.mp4}) are available in the \texttt{test-data/} directory.
+
+The project name is \textbf{face-class-cosine}, and the codebase uses Python 3.10+ with PyTorch 2.6.0.
+
+\newpage
+
+\section{Face Extraction from Video}
+\label{sec:extract}
+
+Script: \texttt{extract\_faces.py}
+
+\subsection{Methodology}
+\label{subsec:extract_method}
+
+Face extraction is performed using the following pipeline:
+\begin{enumerate}
+    \item Read each video from \texttt{Video\_/} using OpenCV.
+    \item Sample frames at 1 fps (every 30 frames).
+    \item Detect faces in each frame using MTCNN \cite{mtcnn}.
+    \item Filter detections with confidence $> 0.95$.
+    \item Crop and resize face regions to $160 \times 160$ pixels.
+    \item Save to \texttt{dataset/train\_raw/\{student\_name\}/}.
+\end{enumerate}
+
+MTCNN (Multi-task Cascaded Convolutional Networks) is a state-of-the-art face detector that operates in three stages (P-Net, R-Net, O-Net) with high accuracy and GPU support. The image size of $160 \times 160$ matches the input requirement of FaceNet InceptionResNetV1.
+
+\subsection{Results}
+\label{subsec:extract_results}
+
+A total of \textbf{320 face images} were extracted from 22 videos. Table~\ref{tab:extract_summary} shows the per-student distribution.
+
+\begin{table}[H]
+    \centering
+    \caption{Face extraction statistics per student}
+    \label{tab:extract_summary}
+    \begin{tabular}{l r}
+        \toprule
+        \textbf{Student} & \textbf{Faces} \\
+        \midrule
+        daochitrung\_23ba14295      & 13 \\
+        dohoanglong\_2410559        & 33 \\
+        dohunganh\_23ba14011        & 24 \\
+        duongtunganh\_2410024       & 10 \\
+        kieuminhduc\_2411138        & 4  \\
+        lehuuduc2411139             & 22 \\
+        lethanhtra\_2410980         & 9  \\
+        letrongtien\_23ba14280      & 8  \\
+        luuminhhoang\_23BA14119     & 8  \\
+        nguyenbinhduong\_22BA13091  & 13 \\
+        nguyendinhgiang\_23ba14089  & 4  \\
+        nguyendinhminhquang\_23BA14244 & 16 \\
+        nguyenhong\_truong\_23BA14300 & 10 \\
+        nguyenkhaiminh\_2410607     & 9  \\
+        nguyenmy\_2410678           & 7  \\
+        nguyenngochieu\_23BA14109   & 12 \\
+        nguyennguyennhat\_23BA14222 & 44 \\
+        nguyentathoangviet\_23BA14320 & 23 \\
+        phanduyhoang\_23BA14117     & 17 \\
+        phanminhtrang\_23BA14290    & 12 \\
+        tranmanhhung\_23BA14127     & 10 \\
+        transonbach\_2410136        & 12 \\
+        \midrule
+        \textbf{Total} & \textbf{320} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Observation: The number of images per class is highly imbalanced (ranging from 4 to 44), which motivates the need for data augmentation.
+
+\newpage
+
+\section{Data Augmentation}
+\label{sec:augment}
+
+Script: \texttt{augment\_data.py}
+
+\subsection{Methodology}
+\label{subsec:augment_method}
+
+To improve model generalization and balance the class distribution, we apply four transformations to each original image:
+
+\begin{itemize}
+    \item \textbf{Horizontal Flip}: Mirrors the image across the vertical axis.
+    \item \textbf{Rotation}: Rotates by $\pm 10^\circ$ to simulate head tilts.
+    \item \textbf{Brightness/Contrast Adjustment}: Alters brightness by factor $\alpha \in [0.8, 1.2]$ and contrast by $\beta \in [-30, 30]$.
+    \item \textbf{Gaussian Blur}: Applies blur with kernel size 3 or 5 to simulate motion blur.
+\end{itemize}
+
+Each original image produces 4 augmented versions (one per transformation), increasing the dataset size by 5x.
+
+\subsection{Results}
+\label{subsec:augment_results}
+
+After augmentation, the dataset grew from \textbf{320 to 1,600 images}. Figure~\ref{fig:dist_before} and Figure~\ref{fig:dist_after} show the distribution before and after augmentation.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/distribution_before.pdf}
+    \caption{Data distribution before augmentation (320 images, 22 classes)}
+    \label{fig:dist_before}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/distribution_after.pdf}
+    \caption{Data distribution after augmentation (1,600 images, 22 classes)}
+    \label{fig:dist_after}
+\end{figure}
+
+The augmentation balanced the class sizes significantly (from 4--44 to 20--220 per class), enabling the model to learn better representations for under-represented classes.
+
+\newpage
+
+\section{Model Training}
+\label{sec:training}
+
+Two classifiers are trained independently in their respective directories:
+\begin{itemize}
+    \item \texttt{svm/train.py} --- FaceNet + SVM (RBF kernel)
+    \item \texttt{knn/train.py} --- FaceNet + KNN (cosine distance)
+\end{itemize}
+
+\subsection{Common Pipeline}
+\label{subsec:pipeline}
+
+Both classifiers share a common feature extraction pipeline:
+
+\begin{enumerate}
+    \item \textbf{Feature Extraction}: FaceNet InceptionResNetV1 \cite{facenet}, pretrained on VGGFace2 \cite{vggface2}, extracts 512-dimensional embedding vectors for each face image. The model is run on GPU with \texttt{torch.no\_grad()} for efficiency.
+    \item \textbf{Normalization}: Input images are normalized to $[-1, 1]$ using mean and standard deviation of 0.5.
+    \item \textbf{Train/Test Split}: 80\% training, 20\% testing, stratified by class to preserve class proportions.
+\end{enumerate}
+
+FaceNet uses triplet loss to learn an embedding space where cosine distances between images of the same person are minimized and distances between different people are maximized. The resulting 512-dimensional vectors form a highly discriminative feature space.
+
+\subsection{SVM Classifier}
+\label{subsec:svm}
+
+Script: \texttt{svm/train.py}
+
+Support Vector Machine (SVM) is a powerful supervised learning algorithm for classification. The core idea is to find a hyperplane that separates classes with maximum margin.
+
+In the 512-dimensional embedding space, data may not be linearly separable. We therefore use the \textbf{RBF (Radial Basis Function) kernel} to project data into a higher-dimensional feature space where classes become linearly separable. The RBF kernel is defined as:
+
+\[
+K(\mathbf{x}_i, \mathbf{x}_j) = \exp\left(-\gamma \|\mathbf{x}_i - \mathbf{x}_j\|^2\right)
+\]
+
+where $\gamma$ (gamma) controls the kernel width. A larger $\gamma$ means each training sample has a narrower influence radius.
+
+The regularization parameter $C$ trades off between maximizing the margin and minimizing training errors:
+\begin{itemize}
+    \item Large $C$: prioritizes correct classification of all training samples, risking overfitting.
+    \item Small $C$: allows misclassifications for a wider margin, improving generalization.
+\end{itemize}
+
+\textbf{Parameters}: $C = 10.0$, $\gamma = \text{scale}$ (automatically computed as $1 / (n\_features \times X.var())$), probability estimation enabled for confidence scoring.
+
+\subsection{KNN Classifier}
+\label{subsec:knn}
+
+Script: \texttt{knn/train.py}
+
+K-Nearest Neighbors (KNN) \cite{knn} is a lazy learning algorithm --- it stores all training data and defers computation until inference time. When predicting a new sample, KNN finds the $k$ closest training points in the feature space and votes to determine the label.
+
+The distance metric is \textbf{cosine distance}:
+
+\[
+d(\mathbf{x}_i, \mathbf{x}_j) = 1 - \frac{\mathbf{x}_i \cdot \mathbf{x}_j}{\|\mathbf{x}_i\| \|\mathbf{x}_j\|}
+\]
+
+Cosine distance is well-suited for FaceNet embeddings because the embedding space is optimized for cosine similarity.
+
+Voting uses \textbf{weights = distance}: closer neighbors have higher influence:
+
+\[
+P(y = c \mid \mathbf{x}) = \frac{\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i \cdot \mathbb{1}(y_i = c)}{\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i}
+\quad\text{with}\quad w_i = 1 / d(\mathbf{x}, \mathbf{x}_i)
+\]
+
+The optimal $k$ is found via 5-fold cross-validation on the training set over $k \in \{1, 3, 5, 7, 9, 11, 15\}$.
+
+\subsection{Results}
+\label{subsec:training_results}
+
+Table~\ref{tab:comparison} compares the two classifiers on the same test set (320 samples).
+
+\begin{table}[H]
+    \centering
+    \caption{SVM vs KNN performance comparison}
+    \label{tab:comparison}
+    \begin{tabular}{l c c}
+        \toprule
+        \textbf{Metric} & \textbf{SVM (RBF)} & \textbf{KNN (k=1, cosine)} \\
+        \midrule
+        Test Accuracy (\%) & 99.69 & 99.69 \\
+        Mean Confidence (\%) & 85.04 & 100.00 \\
+        Training Time (s) & 2.38 & 0.00 \\
+        Inference / 1000 samples (ms) & 0.77 & 0.21 \\
+        Parameters & $C=10$, $\gamma=\text{scale}$ & $k=1$, cosine \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Both models achieve identical accuracy of \textbf{99.69\%} on the test set. Figure~\ref{fig:comparison} visualizes the differences across multiple metrics.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/svm_vs_knn_comparison.pdf}
+    \caption{SVM vs KNN comparison: accuracy/confidence (left), training/inference time (center), and KNN k-value cross-validation search (right).}
+    \label{fig:comparison}
+\end{figure}
+
+\subsection{Strengths and Weaknesses Analysis}
+\label{subsec:strengths_weaknesses}
+
+Table~\ref{tab:swot} provides a comprehensive comparison of the two approaches.
+
+\begin{table}[H]
+    \centering
+    \caption{Strengths and weaknesses of SVM and KNN}
+    \label{tab:swot}
+    \begin{tabular}{p{3.5cm} p{5.5cm} p{5.5cm}}
+        \toprule
+        \textbf{Criterion} & \textbf{SVM (RBF)} & \textbf{KNN (cosine)} \\
+        \midrule
+        \textbf{Strengths} &
+        \begin{itemize}
+            \item Handles non-linear data via kernel trick.
+            \item Max-margin optimization improves generalization.
+            \item Sparse decision space (support vectors) enables fast inference.
+            \item Confidence scores reflect prediction uncertainty realistically.
+        \end{itemize} &
+        \begin{itemize}
+            \item No training required (lazy learning) --- instant setup.
+            \item Simple, interpretable, and easy to deploy.
+            \item Naturally suited for well-structured embedding spaces.
+            \item Trivially extensible with new data (no retraining).
+            \item Faster inference than SVM for small class counts.
+        \end{itemize} \\
+        \midrule
+        \textbf{Weaknesses} &
+        \begin{itemize}
+            \item Longer training time ($O(n^2)$ to $O(n^3)$).
+            \item Hard to interpret: decisions depend on kernel and support vectors.
+            \item Requires hyperparameter tuning ($C$, $\gamma$).
+            \item Adding new data requires full retraining.
+        \end{itemize} &
+        \begin{itemize}
+            \item Stores all training data (high memory usage).
+            \item Slow inference on large datasets (brute-force neighbor search).
+            \item Sensitive to noise and outliers with small $k$.
+            \item 100\% confidence with $k=1$ does not reflect uncertainty.
+            \item Performance degrades with high dimensionality (curse of dimensionality), though FaceNet embeddings mitigate this.
+        \end{itemize} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\newpage
+
+\section{Embedding Space Analysis}
+\label{sec:embedding}
+
+Script: \texttt{analyze\_distribution.py}
+
+To visualize the 512-dimensional embedding space, we apply PCA (Principal Component Analysis) to reduce dimensionality to 2 components. Figure~\ref{fig:embedding_pca} shows the distribution of embedding vectors on the PCA plane.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/embedding_pca.pdf}
+    \caption{PCA projection of face embedding vectors from test video}
+    \label{fig:embedding_pca}
+\end{figure}
+
+The embeddings form well-separated clusters in 2D PCA space, confirming that FaceNet produces highly discriminative feature representations. Each cluster corresponds to a distinct individual, with minimal overlap between different people.
+
+\newpage
+
+\section{Real-time Attendance System}
+\label{sec:streamlit}
+
+Script: \texttt{app.py}
+
+The real-time attendance system is built with Streamlit and offers the following features:
+
+\begin{itemize}
+    \item \textbf{Model Selection}: Radio button in the sidebar to choose between SVM (RBF) and KNN classifiers. Models are loaded dynamically from \texttt{svm/svm\_face\_classifier.pkl} and \texttt{knn/knn\_face\_classifier.pkl}.
+    \item \textbf{Live Webcam Feed}: Captures video via OpenCV (DirectShow on Windows), processes frames at 5 fps with face detection downscaled to $320 \times 240$ pixels.
+    \item \textbf{Face Detection and Recognition}: MTCNN detects faces; FaceNet extracts embeddings; the selected classifier predicts identity; boxes with confidence labels are drawn on the frame.
+    \item \textbf{Attendance Tracking}: Students are marked present on their first detection with confidence $\ge$ threshold (default 0.5). Attendance is tracked per session using Streamlit's session state.
+    \item \textbf{CSV Export}: Download attendance logs as CSV files with status, name, student ID, and timestamp.
+    \item \textbf{GPU Acceleration}: All deep learning models run on CUDA. Heavy imports are loaded in a background thread to avoid UI lag, while \texttt{import torch} runs at module level for proper CUDA initialization.
+\end{itemize}
+
+\subsection{Architecture}
+\label{subsec:architecture}
+
+The application uses a singleton \texttt{CameraProcessor} class with three threads:
+\begin{enumerate}
+    \item \textbf{Capture thread}: Reads frames from the webcam at full framerate and stores the latest raw frame.
+    \item \textbf{Processing thread}: Runs face detection, embedding extraction, and classification every $N=8$ frames. Results (JPEG bytes + attendance updates) are passed to the main thread.
+    \item \textbf{Main (Streamlit) thread}: Renders the JPEG feed and attendance table using \texttt{st.image()} and \texttt{st.markdown()} with HTML tables (avoids the \texttt{st.dataframe} + \texttt{torch} crash bug on Windows).
+\end{enumerate}
+
+\newpage
+
+\section{Project Structure}
+\label{sec:project_structure}
+
+The project is organized into a modular structure:
+
+\begin{verbatim}
+face-class-cosine/
+├── svm/
+│   ├── train.py                    # SVM training script
+│   └── svm_face_classifier.pkl     # Trained SVM model
+├── knn/
+│   ├── train.py                    # KNN training script
+│   └── knn_face_classifier.pkl     # Trained KNN model
+├── extract_faces.py                # Face extraction from videos
+├── augment_data.py                 # Data augmentation + distribution plots
+├── analyze_distribution.py         # Regenerate all analysis figures
+├── app.py                          # Streamlit real-time attendance app
+├── train_comparison.py             # Comparative training (SVM + KNN)
+├── dataset/
+│   ├── train_raw/                  # Raw extracted faces (320 images)
+│   └── train_augmented/            # Augmented dataset (1,600 images)
+├── figures/                        # Generated figures (PDF)
+│   ├── distribution_before.pdf
+│   ├── distribution_after.pdf
+│   ├── embedding_pca.pdf
+│   └── svm_vs_knn_comparison.pdf
+├── models/                         # Legacy model storage
+├── report/
+│   ├── report.tex                  # Vietnamese report
+│   └── report_en.tex               # English report (this document)
+├── test-data/                      # Test videos
+└── Video_/                         # Original input videos
+\end{verbatim}
+
+\subsection{Script Descriptions}
+\label{subsec:scripts}
+
+\begin{table}[H]
+    \centering
+    \caption{Main scripts and their functions}
+    \label{tab:scripts}
+    \begin{tabular}{l l}
+        \toprule
+        \textbf{Script} & \textbf{Function} \\
+        \midrule
+        \texttt{extract\_faces.py} & Extract faces from videos using MTCNN \\
+        \texttt{augment\_data.py}  & Data augmentation + distribution figures \\
+        \texttt{svm/train.py}      & Train SVM classifier on FaceNet embeddings \\
+        \texttt{knn/train.py}      & Train KNN classifier on FaceNet embeddings \\
+        \texttt{train\_comparison.py} & Compare SVM and KNN side by side \\
+        \texttt{analyze\_distribution.py} & Regenerate all distribution and PCA figures \\
+        \texttt{app.py}           & Streamlit real-time attendance application \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Libraries Used}
+\label{subsec:libraries}
+
+\begin{itemize}
+    \item \textbf{PyTorch 2.6.0 + CUDA 12.4}: Deep learning framework for GPU-accelerated inference.
+    \item \textbf{facenet-pytorch 2.5.3}: MTCNN face detection and FaceNet InceptionResNetV1 for embeddings.
+    \item \textbf{OpenCV 4.13.0}: Video capture, image processing, and frame rendering.
+    \item \textbf{scikit-learn 1.8.0}: SVM, KNN, PCA, cross-validation, and evaluation metrics.
+    \item \textbf{Matplotlib 3.10.9 + Seaborn}: Data visualization and figure generation.
+    \item \textbf{Streamlit}: Web application framework for the real-time attendance interface.
+\end{itemize}
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This project successfully built a complete face recognition pipeline from video data and compared two classifiers:
+
+\begin{itemize}
+    \item Extracted 320 face images from 22 classroom videos using MTCNN.
+    \item Augmented the dataset to 1,600 images with four transformation types.
+    \item Trained both SVM (RBF kernel, $C=10$) and KNN (cosine distance, $k=1$) on FaceNet embeddings, with both achieving \textbf{99.69\%} test accuracy.
+    \item SVM provides more realistic confidence scores (85.04\%), while KNN offers instant training and faster inference.
+    \item Deployed a real-time attendance system with Streamlit supporting both classifiers, model selection, and CSV export.
+\end{itemize}
+
+Future work includes exploring end-to-end models (ArcFace, CosFace) for potentially higher accuracy, integrating multi-view data, and optimizing KNN inference with KD-Tree or Ball Tree data structures for larger datasets.
+
+\newpage
+
+\begin{thebibliography}{9}
+\bibitem{mtcnn} K. Zhang, Z. Zhang, Z. Li, and Y. Qiao, ``Joint Face Detection and Alignment using Multi-task Cascaded Convolutional Networks,'' \textit{IEEE Signal Processing Letters}, 2016.
+\bibitem{facenet} F. Schroff, D. Kalenichenko, and J. Philbin, ``FaceNet: A Unified Embedding for Face Recognition and Clustering,'' \textit{CVPR}, 2015.
+\bibitem{vggface2} Q. Cao, L. Shen, W. Xie, O. M. Parkhi, and A. Zisserman, ``VGGFace2: A dataset for recognising faces across pose and age,'' \textit{FG}, 2018.
+\bibitem{knn} T. Cover and P. Hart, ``Nearest neighbor pattern classification,'' \textit{IEEE Transactions on Information Theory}, 1967.
+\bibitem{svm} C. Cortes and V. Vapnik, ``Support-vector networks,'' \textit{Machine Learning}, 1995.
+\end{thebibliography}
+
+\end{document}

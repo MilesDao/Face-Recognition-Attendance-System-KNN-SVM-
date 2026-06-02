@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data (large files, not code)
+dataset/
+test-data/
+Video_/
+*.mov
+*.mp4
+
+# Generated outputs
+output_vid*.mp4
+*.npz
+
+# Models (can be regenerated)
+svm/svm_face_classifier.pkl
+knn/knn_face_classifier.pkl
+models/
+
+# Figures (can be regenerated)
+figures/
+
+# Logs
+*.log
+
+# Streamlit
+.streamlit/
+
+# LaTeX aux
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.pdf

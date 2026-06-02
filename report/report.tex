@@ -1,0 +1,401 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{vietnam}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\geometry{margin=2.5cm}
+
+\lstset{
+    basicstyle=\footnotesize\ttfamily,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny,
+    backgroundcolor=\color{gray!10},
+}
+
+\title{\textbf{Face Classification Using Cosine Similarity}\\[0.5cm]
+\large{Báo cáo đồ án môn học --- Xử lý ảnh và nhận dạng}}
+\author{
+    \textbf{Sinh viên thực hiện:} \\
+    \texttt{Lớp: ... }
+}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Giới thiệu}
+\label{sec:intro}
+
+Bài toán nhận dạng khuôn mặt (Face Recognition) là một trong những bài toán quan trọng của thị giác máy tính. Mục tiêu của đồ án này là xây dựng một hệ thống nhận dạng khuôn mặt từ dữ liệu video, sử dụng các kỹ thuật học sâu (Deep Learning) kết hợp với các bộ phân loại truyền thống.
+
+Cụ thể, đồ án gồm các bước chính:
+\begin{enumerate}
+    \item \textbf{Trích xuất khuôn mặt}: Từ các video gốc trong thư mục \texttt{Video\_/}, sử dụng MTCNN để phát hiện và cắt khuôn mặt.
+    \item \textbf{Tăng cường dữ liệu} (Data Augmentation): Áp dụng các phép biến đổi để làm giàu tập dữ liệu.
+    \item \textbf{Huấn luyện mô hình}: Sử dụng FaceNet (InceptionResNetV1) để trích xuất embedding 512 chiều, kết hợp với hai bộ phân loại --- SVM (RBF) và KNN --- để so sánh hiệu năng.
+    \item \textbf{Ứng dụng real-time}: Triển khai hệ thống điểm danh qua webcam với Streamlit.
+\end{enumerate}
+
+\subsection{Dữ liệu}
+\label{subsec:data}
+
+Dữ liệu đầu vào gồm 22 video (\texttt{.mov}) của 22 sinh viên trong lớp, đặt trong thư mục \texttt{Video\_/}. Mỗi video có độ dài từ 5 đến 25 giây, quay ở 30 fps. Dữ liệu kiểm thử gồm 5 video \texttt{.mp4} trong thư mục \texttt{test-data/}.
+
+\newpage
+
+\section{Tiền xử lý dữ liệu --- Trích xuất khuôn mặt từ video}
+\label{sec:extract}
+
+Script: \texttt{extract\_faces.py}
+
+\subsection{Phương pháp}
+\label{subsec:extract_method}
+
+Quy trình trích xuất khuôn mặt được thực hiện như sau:
+\begin{enumerate}
+    \item Đọc từng video từ thư mục \texttt{Video\_/} bằng OpenCV.
+    \item Lấy mẫu khung hình với tần suất 1 khung hình mỗi 30 frame (frame rate $\approx$ 1 fps).
+    \item Với mỗi khung hình, sử dụng MTCNN \cite{mtcnn} để phát hiện khuôn mặt.
+    \item Lọc các phát hiện có độ tin cậy (confidence) $> 0.95$.
+    \item Cắt và resize vùng khuôn mặt về kích thước $160 \times 160$ pixel.
+    \item Lưu ảnh vào thư mục \texttt{dataset/train\_raw/\{tên\_sinh\_viên\}/}.
+\end{enumerate}
+
+MTCNN (Multi-task Cascaded Convolutional Networks) là một mô hình phát hiện khuôn mặt mạnh mẽ, hoạt động theo ba tầng (P-Net, R-Net, O-Net) với độ chính xác cao và hỗ trợ GPU.
+
+\subsection{Kết quả}
+\label{subsec:extract_results}
+
+Tổng cộng đã trích xuất được \textbf{320 ảnh khuôn mặt} từ 22 video. Bảng~\ref{tab:extract_summary} thống kê số lượng ảnh theo từng sinh viên.
+
+\begin{table}[H]
+    \centering
+    \caption{Thống kê số lượng ảnh khuôn mặt trích xuất được}
+    \label{tab:extract_summary}
+    \begin{tabular}{l r}
+        \toprule
+        \textbf{Sinh viên} & \textbf{Số ảnh} \\
+        \midrule
+        daochitrung\_23ba14295      & 13 \\
+        dohoanglong\_2410559        & 33 \\
+        dohunganh\_23ba14011        & 24 \\
+        duongtunganh\_2410024       & 10 \\
+        kieuminhduc\_2411138        & 4  \\
+        lehuuduc2411139             & 22 \\
+        lethanhtra\_2410980         & 9  \\
+        letrongtien\_23ba14280      & 8  \\
+        luuminhhoang\_23BA14119     & 8  \\
+        nguyenbinhduong\_22BA13091  & 13 \\
+        nguyendinhgiang\_23ba14089  & 4  \\
+        nguyendinhminhquang\_23BA14244 & 16 \\
+        nguyenhong\_truong\_23BA14300 & 10 \\
+        nguyenkhaiminh\_2410607     & 9  \\
+        nguyenmy\_2410678           & 7  \\
+        nguyenngochieu\_23BA14109   & 12 \\
+        nguyennguyennhat\_23BA14222 & 44 \\
+        nguyentathoangviet\_23BA14320 & 23 \\
+        phanduyhoang\_23BA14117     & 17 \\
+        phanminhtrang\_23BA14290    & 12 \\
+        tranmanhhung\_23BA14127     & 10 \\
+        transonbach\_2410136        & 12 \\
+        \midrule
+        \textbf{Tổng} & \textbf{320} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Nhận xét: Số lượng ảnh giữa các lớp không đồng đều (từ 4 đến 44 ảnh), dẫn đến cần thiết phải tăng cường dữ liệu.
+
+\newpage
+
+\section{Tăng cường dữ liệu (Data Augmentation)}
+\label{sec:augment}
+
+Script: \texttt{augment\_data.py}
+
+\subsection{Phương pháp}
+\label{subsec:augment_method}
+
+Để cải thiện khả năng tổng quát hóa của mô hình và cân bằng dữ liệu giữa các lớp, chúng tôi áp dụng các phép biến đổi sau lên mỗi ảnh gốc:
+
+\begin{itemize}
+    \item \textbf{Lật ngang} (Horizontal Flip): Tạo ảnh đối xứng qua trục dọc.
+    \item \textbf{Xoay nhẹ} (Rotation): Xoay ảnh một góc $\pm 10^\circ$.
+    \item \textbf{Biến đổi độ sáng/tương phản} (Brightness/Contrast): Thay đổi độ sáng với hệ số $\alpha \in [0.8, 1.2]$ và độ tương phản $\beta \in [-30, 30]$.
+    \item \textbf{Làm mờ Gaussian} (Gaussian Blur): Làm mờ với kernel size 3 hoặc 5.
+\end{itemize}
+
+Mỗi ảnh gốc tạo ra 4 ảnh tăng cường (1 cho mỗi phép biến đổi), nâng tổng số ảnh lên gấp 5 lần.
+
+\subsection{Kết quả}
+\label{subsec:augment_results}
+
+Sau khi tăng cường, tổng số ảnh tăng từ \textbf{320 lên 1.600}. Hình~\ref{fig:dist_before} và Hình~\ref{fig:dist_after} thể hiện sự phân bố dữ liệu trước và sau khi tăng cường.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../figures/distribution_before.pdf}
+    \caption{Phân bố dữ liệu trước khi tăng cường (320 ảnh, 22 lớp)}
+    \label{fig:dist_before}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../figures/distribution_after.pdf}
+    \caption{Phân bố dữ liệu sau khi tăng cường (1.600 ảnh, 22 lớp)}
+    \label{fig:dist_after}
+\end{figure}
+
+Nhận xét: Sau augmentation, số lượng ảnh mỗi lớp tăng lên đáng kể (từ 4--44 lên 20--220), giúp mô hình học tốt hơn trên các lớp có ít dữ liệu.
+
+\newpage
+
+\section{Huấn luyện mô hình}
+\label{sec:training}
+
+Script: \texttt{train\_comparison.py}
+
+\subsection{Quy trình chung}
+\label{subsec:pipeline}
+
+Cả hai mô hình đều sử dụng chung một pipeline trích xuất đặc trưng:
+\begin{enumerate}
+    \item \textbf{Trích xuất đặc trưng} (Feature Extraction): Sử dụng mô hình FaceNet InceptionResNetV1 \cite{facenet} đã được tiền huấn luyện trên tập VGGFace2 \cite{vggface2} để trích xuất vector embedding 512 chiều cho mỗi ảnh khuôn mặt.
+    \item \textbf{Chuẩn hóa}: Ảnh đầu vào được chuẩn hóa về khoảng $[-1, 1]$ với mean và std là 0.5.
+    \item \textbf{Chia dữ liệu}: 80\% huấn luyện, 20\% kiểm tra, chia stratified theo lớp.
+\end{enumerate}
+
+FaceNet sử dụng hàm loss triplet để học không gian embedding sao cho khoảng cách cosine giữa các ảnh cùng người là nhỏ và khác người là lớn.
+
+\subsection{Phương pháp SVM}
+\label{subsec:svm_method}
+
+SVM (Support Vector Machine) là một thuật toán học có giám sát mạnh mẽ cho bài toán phân loại. Ý tưởng chính của SVM là tìm một siêu phẳng (hyperplane) phân tách các lớp dữ liệu với lề (margin) tối đa.
+
+Trong không gian embedding 512 chiều, dữ liệu có thể không khả tuyến tính (linearly separable). Do đó, chúng tôi sử dụng \textbf{kernel RBF} (Radial Basis Function) để ánh xạ dữ liệu sang không gian đặc trưng có số chiều cao hơn, nơi các lớp trở nên khả tuyến. Hàm kernel RBF được định nghĩa:
+
+\[
+K(\mathbf{x}_i, \mathbf{x}_j) = \exp\left(-\gamma \|\mathbf{x}_i - \mathbf{x}_j\|^2\right)
+\]
+
+trong đó $\gamma$ (gamma) kiểm soát độ rộng của kernel. Giá trị $\gamma$ càng lớn, ảnh hưởng của mỗi mẫu huấn luyện càng hẹp.
+
+Tham số $C$ đóng vai trò đánh đổi giữa lề tối đa và lỗi phân loại trên tập huấn luyện (regularization):
+\begin{itemize}
+    \item $C$ lớn: ưu tiên phân loại đúng mọi mẫu huấn luyện, có thể gây overfitting.
+    \item $C$ nhỏ: cho phép một số mẫu bị phân loại sai để có lề rộng hơn, tăng khả năng tổng quát.
+\end{itemize}
+
+Tham số sử dụng: $C = 10.0$, $\gamma = \text{scale}$ (tự động tính $\gamma = 1 / (n\_features \times X.var())$).
+
+\subsection{Phương pháp KNN}
+\label{subsec:knn_method}
+
+KNN (K-Nearest Neighbors) là một thuật toán học có giám sát thuộc nhóm ``lười'' (lazy learning) --- không xây dựng mô hình tường minh trong quá trình huấn luyện, mà chỉ lưu trữ toàn bộ dữ liệu huấn luyện. Khi dự đoán một mẫu mới, KNN tìm $k$ mẫu huấn luyện gần nhất trong không gian đặc trưng và bỏ phiếu (vote) để xác định nhãn.
+
+Khoảng cách giữa các điểm được đo bằng \textbf{cosine distance}:
+
+\[
+d(\mathbf{x}_i, \mathbf{x}_j) = 1 - \frac{\mathbf{x}_i \cdot \mathbf{x}_j}{\|\mathbf{x}_i\| \|\mathbf{x}_j\|}
+\]
+
+Cosine distance phù hợp với embedding vector của FaceNet vì các vector này đã được học để tối ưu hóa độ tương tự cosine.
+
+Trọng số bỏ phiếu sử dụng \textbf{weights = distance}: các láng giềng gần hơn có trọng số cao hơn trong quyết định phân loại:
+
+\[
+P(y = c \mid \mathbf{x}) = \frac{\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i \cdot \mathbb{1}(y_i = c)}{\sum_{i \in \mathcal{N}_k(\mathbf{x})} w_i}
+\]
+với $w_i = 1 / d(\mathbf{x}, \mathbf{x}_i)$.
+
+Tham số $k$ (số lượng láng giềng) được chọn thông qua 5-fold cross-validation trên tập huấn luyện với các giá trị $k \in \{1, 3, 5, 7, 9, 11, 15\}$.
+
+\subsection{Kết quả}
+\label{subsec:training_results}
+
+Bảng~\ref{tab:comparison} so sánh hiệu năng của hai bộ phân loại trên cùng tập kiểm tra (320 mẫu).
+
+\begin{table}[H]
+    \centering
+    \caption{So sánh hiệu năng SVM và KNN}
+    \label{tab:comparison}
+    \begin{tabular}{l c c}
+        \toprule
+        \textbf{Metric} & \textbf{SVM (RBF)} & \textbf{KNN (k=1, cosine)} \\
+        \midrule
+        Test Accuracy (\%) & 99.69 & 99.69 \\
+        Mean Confidence (\%) & 85.04 & 100.00 \\
+        Training Time (s) & 2.38 & 0.00 \\
+        Inference / 1000 samples (ms) & 0.77 & 0.21 \\
+        Parameters & $C=10$, $\gamma=\text{scale}$ & $k=1$, cosine \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Cả hai mô hình đều đạt độ chính xác 99.69\% trên tập kiểm tra. Hình~\ref{fig:comparison} trực quan hóa sự khác biệt giữa hai phương pháp.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../figures/svm_vs_knn_comparison.pdf}
+    \caption{So sánh SVM và KNN: độ chính xác, thời gian huấn luyện/suy luận, và kết quả tìm tham số $k$ cho KNN.}
+    \label{fig:comparison}
+\end{figure}
+
+\subsection{Phân tích ưu nhược điểm}
+\label{subsec:strengths_weaknesses}
+
+Bảng~\ref{tab:swot} tóm tắt ưu và nhược điểm của từng phương pháp.
+
+\begin{table}[H]
+    \centering
+    \caption{Ưu và nhược điểm của SVM và KNN}
+    \label{tab:swot}
+    \begin{tabular}{p{3.5cm} p{5.5cm} p{5.5cm}}
+        \toprule
+        \textbf{Tiêu chí} & \textbf{SVM (RBF)} & \textbf{KNN (cosine)} \\
+        \midrule
+        \textbf{Ưu điểm} &
+        \begin{itemize}
+            \item Xử lý tốt dữ liệu phi tuyến nhờ kernel trick.
+            \item Có lề tối đa (max-margin) giúp tổng quát hóa tốt.
+            \item Không gian quyết định (support vectors) thường thưa, suy luận nhanh.
+            \item Độ tin cậy (confidence) phản ánh tốt độ chắc chắn của dự đoán.
+        \end{itemize} &
+        \begin{itemize}
+            \item Không cần huấn luyện (lazy learning) --- tiết kiệm thời gian.
+            \item Đơn giản, dễ hiểu và dễ triển khai.
+            \item Phù hợp với không gian embedding có cấu trúc tốt (như FaceNet).
+            \item Dễ dàng thêm dữ liệu mới mà không cần huấn luyện lại.
+            \item Suy luận nhanh hơn SVM với số lớp nhỏ.
+        \end{itemize} \\
+        \midrule
+        \textbf{Nhược điểm} &
+        \begin{itemize}
+            \item Thời gian huấn luyện lâu hơn ($O(n^2)$ đến $O(n^3)$).
+            \item Khó diễn giải: quyết định phụ thuộc vào kernel và support vectors.
+            \item Cần tuning tham số ($C$, $\gamma$).
+            \item Không dễ dàng cập nhật khi có dữ liệu mới (phải huấn luyện lại).
+        \end{itemize} &
+        \begin{itemize}
+            \item Lưu trữ toàn bộ dữ liệu huấn luyện (tốn bộ nhớ).
+            \item Suy luận chậm trên tập dữ liệu lớn (duyệt toàn bộ để tìm $k$ láng giềng).
+            \item Nhạy cảm với nhiễu và outlier nếu $k$ nhỏ.
+            \item Độ tin cậy 100\% với $k=1$ --- không phản ánh độ bất định.
+            \item Hiệu suất giảm khi số chiều tăng (curse of dimensionality), dù embedding FaceNet đã giảm thiểu điều này.
+        \end{itemize} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\newpage
+
+\section{Phân tích phân bố vector embedding}
+\label{sec:embedding}
+
+Script: \texttt{analyze\_distribution.py}
+
+Để trực quan hóa không gian embedding 512 chiều, chúng tôi sử dụng PCA (Principal Component Analysis) để giảm chiều xuống còn 2 chiều. Hình~\ref{fig:embedding_pca} thể hiện phân bố của các vector embedding trên mặt phẳng PCA.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{../figures/embedding_pca.pdf}
+    \caption{PCA projection của các vector face embedding từ video kiểm tra}
+    \label{fig:embedding_pca}
+\end{figure}
+
+Nhận xét: Các embedding vector của các khuôn mặt khác nhau phân bố tách biệt trong không gian 2D PCA, cho thấy khả năng phân biệt tốt của mô hình FaceNet.
+
+\newpage
+
+\section{Ứng dụng Real-time với Streamlit}
+\label{sec:streamlit}
+
+Script: \texttt{app.py}
+
+Hệ thống điểm danh real-time được xây dựng với Streamlit, cho phép:
+\begin{itemize}
+    \item Chọn bộ phân loại (SVM hoặc KNN) qua giao diện.
+    \item Chạy webcam với phát hiện khuôn mặt MTCNN và nhận dạng FaceNet.
+    \item Điểm danh tự động khi phát hiện khuôn mặt với độ tin cậy $\ge$ ngưỡng cài đặt.
+    \item Xuất danh sách điểm danh dưới dạng CSV.
+\end{itemize}
+
+Toàn bộ pipeline sử dụng GPU (CUDA) để tăng tốc. Mô hình MTCNN và FaceNet được tải ngầm trong luồng nền (background thread) để tránh giật lag giao diện.
+
+\newpage
+
+\section{Cấu trúc mã nguồn}
+\label{sec:code}
+
+Bảng~\ref{tab:scripts} mô tả các script chính trong đồ án.
+
+\begin{table}[H]
+    \centering
+    \caption{Các script chính}
+    \label{tab:scripts}
+    \begin{tabular}{l l}
+        \toprule
+        \textbf{Script} & \textbf{Chức năng} \\
+        \midrule
+        \texttt{extract\_faces.py} & Trích xuất khuôn mặt từ video \\
+        \texttt{augment\_data.py}  & Tăng cường dữ liệu + vẽ biểu đồ phân bố \\
+        \texttt{train\_comparison.py} & Huấn luyện và so sánh SVM và KNN \\
+        \texttt{analyze\_distribution.py} & Tái tạo biểu đồ phân bố và PCA \\
+        \texttt{app.py}           & Ứng dụng điểm danh real-time với Streamlit \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Thư viện sử dụng}
+\label{subsec:libraries}
+
+\begin{itemize}
+    \item \textbf{PyTorch 2.6.0 + CUDA 12.4}: Framework học sâu.
+    \item \textbf{facenet-pytorch 2.5.3}: MTCNN phát hiện khuôn mặt + FaceNet InceptionResNetV1.
+    \item \textbf{OpenCV 4.13.0}: Xử lý video và ảnh.
+    \item \textbf{scikit-learn 1.8.0}: SVM, KNN, PCA.
+    \item \textbf{Matplotlib 3.10.9 + Seaborn}: Vẽ biểu đồ.
+    \item \textbf{Streamlit}: Xây dựng ứng dụng web real-time.
+\end{itemize}
+
+\section{Kết luận}
+\label{sec:conclusion}
+
+Đồ án đã xây dựng thành công một pipeline hoàn chỉnh cho bài toán nhận dạng khuôn mặt từ video và so sánh hai bộ phân loại:
+
+\begin{itemize}
+    \item Trích xuất 320 khuôn mặt từ 22 video sử dụng MTCNN.
+    \item Tăng cường dữ liệu lên 1.600 ảnh với 4 phép biến đổi.
+    \item Huấn luyện và so sánh SVM (RBF) và KNN (cosine), cả hai đều đạt \textbf{99.69\%} độ chính xác trên tập kiểm tra.
+    \item SVM cho độ tin cậy hợp lý hơn (85.04\%), trong khi KNN huấn luyện nhanh hơn và suy luận nhanh hơn.
+    \item Triển khai ứng dụng điểm danh real-time với Streamlit, hỗ trợ cả hai mô hình.
+\end{itemize}
+
+Hướng phát triển tiếp theo có thể bao gồm: sử dụng mô hình end-to-end (ArcFace, CosFace), tích hợp thêm dữ liệu từ nhiều góc nhìn, và cải thiện tốc độ suy luận KNN với cấu trúc dữ liệu như KD-Tree hoặc Ball Tree.
+
+\newpage
+
+\begin{thebibliography}{9}
+\bibitem{mtcnn} K. Zhang, Z. Zhang, Z. Li, and Y. Qiao, ``Joint Face Detection and Alignment using Multi-task Cascaded Convolutional Networks,'' \textit{IEEE Signal Processing Letters}, 2016.
+\bibitem{facenet} F. Schroff, D. Kalenichenko, and J. Philbin, ``FaceNet: A Unified Embedding for Face Recognition and Clustering,'' \textit{CVPR}, 2015.
+\bibitem{vggface2} Q. Cao, L. Shen, W. Xie, O. M. Parkhi, and A. Zisserman, ``VGGFace2: A dataset for recognising faces across pose and age,'' \textit{FG}, 2018.
+\bibitem{knn} T. Cover and P. Hart, ``Nearest neighbor pattern classification,'' \textit{IEEE Transactions on Information Theory}, 1967.
+\end{thebibliography}
+
+\end{document}
