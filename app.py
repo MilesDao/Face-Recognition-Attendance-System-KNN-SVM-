@@ -171,17 +171,41 @@ class FaceRecognizerProcessor(VideoProcessorBase):
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 
+FALLBACK_NAMES = [
+    "daochitrung_23ba14295",
+    "dohoanglong_2410559",
+    "dohunganh_23ba14011",
+    "duongtunganh_2410024",
+    "kieuminhduc_2411138",
+    "lehuuduc2411139",
+    "lethanhtra_2410980",
+    "letrongtien_23ba14280",
+    "luuminhhoang_23BA14119",
+    "nguyenbinhduong_22BA13091",
+    "nguyendinhgiang_23ba14089",
+    "nguyendinhminhquang_23BA14244",
+    "nguyenhong_truong_23BA14300",
+    "nguyenkhaiminh_2410607",
+    "nguyenmy_2410678",
+    "nguyenngochieu_23BA14109",
+    "nguyennguyennhat_23BA14222",
+    "nguyentathoangviet_23BA14320",
+    "phanduyhoang_23BA14117",
+    "phanminhtrang_23BA14290",
+    "tranmanhhung_23BA14127",
+    "transonbach_2410136"
+]
+
+
 @st.cache_data(ttl=60)
 def get_all_names():
     path = Path("dataset/train_augmented")
     if not path.exists():
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            return []
-    return sorted(set(
+        return FALLBACK_NAMES
+    names = sorted(set(
         p.stem for p in path.iterdir() if p.is_dir()
     ))
+    return names if names else FALLBACK_NAMES
 
 
 

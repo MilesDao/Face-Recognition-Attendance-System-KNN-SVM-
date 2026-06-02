@@ -35,8 +35,6 @@ output_vid*.mp4
 *.npz
 
 # Models (can be regenerated)
-svm/svm_face_classifier.pkl
-knn/knn_face_classifier.pkl
 models/
 
 # Figures (can be regenerated)
