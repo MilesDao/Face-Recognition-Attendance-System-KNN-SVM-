@@ -327,6 +327,24 @@ The confusion matrices in Figure~\ref{fig:cm_svm} and Figure~\ref{fig:cm_knn} co
     \label{fig:cm}
 \end{figure}
 
+\subsubsection{Decision Boundary Visualization}
+
+To build intuition for how each classifier carves up the embedding space, we project the 512-dimensional embeddings into 2D via PCA and train both classifiers on the reduced data. Figure~\ref{fig:decision_boundaries} shows the resulting decision regions alongside the actual data points. Note that the true 512D boundaries differ from this 2D approximation --- the plot is for illustration only.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/decision_boundaries.png}
+    \caption{Decision boundaries of SVM (left) and KNN (right) in PCA-reduced (2D) FaceNet embedding space. Each colored region corresponds to one of 22 students. SVM produces smooth, curved boundaries via the RBF kernel, while KNN (k=1) creates Voronoi-like cells around each training point.}
+    \label{fig:decision_boundaries}
+\end{figure}
+
+Key observations:
+\begin{itemize}
+    \item \textbf{SVM} produces smooth, curved decision boundaries via the RBF kernel. The max-margin objective pushes boundaries away from support vectors, creating wide separation corridors between classes.
+    \item \textbf{KNN (k=1)} carves the space into Voronoi cells surrounding each training point. This is apparent in the figure as finer, irregular regions near class interfaces.
+    \item Both methods separate the 22 clusters cleanly, consistent with the 100\% test accuracy.
+\end{itemize}
+
 \subsubsection{Per-Class Accuracy}
 
 Figure~\ref{fig:per_class} breaks down accuracy per student. Every class achieves 100\% accuracy for both classifiers, demonstrating that the FaceNet embedding space separates all 22 individuals equally well.

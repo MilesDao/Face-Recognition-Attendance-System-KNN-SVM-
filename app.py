@@ -3,69 +3,17 @@ import threading
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 import av
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 from streamlit_autorefresh import st_autorefresh
+import torch
 
 st.set_page_config(page_title="Face Attendance", layout="wide")
 
-MODEL_SVM_PATH = Path("svm/svm_face_classifier.pkl")
-MODEL_KNN_PATH = Path("knn/knn_face_classifier.pkl")
-PROCESS_EVERY_N = 8
-REFRESH_MS = 200
+MODEL_SVM_PATH = Path("models/svm_face_classifier.pkl")
+MODEL_KNN_PATH = Path("models/knn_face_classifier.pkl")
 
-# Try to load custom TURN credentials from Streamlit Secrets (mandatory for deployed cloud apps)
-ice_servers = [
-    {
-        "urls": [
-            "stun:stun.l.google.com:19302",
-            "stun:stun1.l.google.com:19302",
-            "stun:stun2.l.google.com:19302",
-            "stun:stun3.l.google.com:19302",
-            "stun:stun4.l.google.com:19302",
-        ]
-    }
-]
-
-has_turn_server = False
-
-try:
-    # Option A: Check for static credentials
-    if "TURN_URL" in st.secrets and "TURN_USERNAME" in st.secrets and "TURN_CREDENTIAL" in st.secrets:
-        ice_servers.append({
-            "urls": [st.secrets["TURN_URL"]],
-            "username": st.secrets["TURN_USERNAME"],
-            "credential": st.secrets["TURN_CREDENTIAL"]
-        })
-        has_turn_server = True
-
-    # Option B: Check for Metered API key to fetch dynamically at runtime
-    elif "METERED_API_KEY" in st.secrets:
-        import urllib.request
-        import json
-        try:
-            api_key = st.secrets["METERED_API_KEY"]
-            domain = st.secrets.get("METERED_DOMAIN", "face-recog.metered.live")
-            url = f"https://{domain}/api/v1/turn/credentials?apiKey={api_key}"
-            
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200:
-                    fetched_servers = json.loads(response.read().decode())
-                    if isinstance(fetched_servers, list):
-                        ice_servers.extend(fetched_servers)
-                        has_turn_server = True
-        except Exception as e:
-            # Fallback to STUN servers if the API call fails
-            pass
-except Exception:
-    # Fallback silently to STUN-only mode if no secrets are configured/found locally
-    pass
-
-RTC_CONFIGURATION = RTCConfiguration({"iceServers": ice_servers})
-
-import torch
+# Device detection for PyTorch
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 _DEVICE_STR = f"{'GPU' if torch.cuda.is_available() else 'CPU'} ({_DEVICE})"
 
@@ -80,9 +28,18 @@ class FaceRecognizerProcessor(VideoProcessorBase):
         self._pending = []
         self._pending_lock = threading.Lock()
         
-        # Start preloading heavy models in a background thread immediately!
+        # Async processing properties to keep camera streaming smooth (30 FPS)
+        self._latest_frame = None
+        self._latest_frame_lock = threading.Lock()
+        self._predictions_lock = threading.Lock()
+        self._last_embeddings = []
+        
+        # Start preloading heavy models and starting the processing loop
         self._preload_thread = threading.Thread(target=self._preload_heavy, daemon=True)
         self._preload_thread.start()
+
+        self._processor_thread = threading.Thread(target=self._processing_loop, daemon=True)
+        self._processor_thread.start()
 
     def _preload_heavy(self):
         try:
@@ -98,11 +55,9 @@ class FaceRecognizerProcessor(VideoProcessorBase):
         from facenet_pytorch import MTCNN, InceptionResnetV1
         from PIL import Image
         from torchvision import transforms
-        import torch
         
         # Limit CPU threads to prevent scheduling thrashing on multi-core CPUs
-        if not torch.cuda.is_available():
-            torch.set_num_threads(4)
+        torch.set_num_threads(2)
             
         self.cv2 = cv2
         self.np = np
@@ -112,61 +67,67 @@ class FaceRecognizerProcessor(VideoProcessorBase):
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ])
         
-        # Highly optimized MTCNN parameters for blazing fast CPU/GPU inference
-        self._mtcnn = MTCNN(image_size=160, margin=20, min_face_size=80,
-                            thresholds=[0.8, 0.8, 0.8], factor=0.8,
-                            post_process=True, device=_DEVICE)
+        # Highly optimized MTCNN parameters for fast face detection
+        self._mtcnn = MTCNN(
+            image_size=160,
+            margin=20,
+            min_face_size=80,
+            thresholds=[0.8, 0.8, 0.8],
+            factor=0.8,
+            post_process=True,
+            device=_DEVICE
+        )
         self._resnet = InceptionResnetV1(pretrained="vggface2").eval().to(_DEVICE)
         self._heavy_initialized = True
 
-    def pop_pending(self):
-        with self._pending_lock:
-            items = list(self._pending)
-            self._pending.clear()
-            return items
+    def _processing_loop(self):
+        while True:
+            if not self._heavy_initialized:
+                time.sleep(0.1)
+                continue
 
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        if not self._heavy_initialized:
-            return av.VideoFrame.from_ndarray(img, format="bgr24")
+            # Load/reload classifiers if needed
+            if not hasattr(self, "_current_model_type") or self._current_model_type != self.model_type or not hasattr(self, "_clf"):
+                try:
+                    import pickle
+                    model_path = MODEL_KNN_PATH if self.model_type == "knn" else MODEL_SVM_PATH
+                    with open(model_path, "rb") as f:
+                        d = pickle.load(f)
+                    self._clf = d.get("classifier") or d.get("svm") or d.get("knn")
+                    self._le = d["label_encoder"]
+                    self._current_model_type = self.model_type
+                except Exception as e:
+                    self._error = f"Model load error: {str(e)}"
+                    time.sleep(0.5)
+                    continue
 
-        # Load/reload classifiers if needed
-        if not hasattr(self, "_current_model_type") or self._current_model_type != self.model_type or not hasattr(self, "_clf"):
-            try:
-                import pickle
-                model_path = MODEL_KNN_PATH if self.model_type == "knn" else MODEL_SVM_PATH
-                with open(model_path, "rb") as f:
-                    d = pickle.load(f)
-                self._clf = d.get("classifier") or d.get("svm") or d.get("knn")
-                self._le = d["label_encoder"]
-                self._current_model_type = self.model_type
-            except Exception as e:
-                self._error = f"Model load error: {str(e)}"
-                return av.VideoFrame.from_ndarray(img, format="bgr24")
+            # Get the latest frame to process
+            img_to_process = None
+            with self._latest_frame_lock:
+                if self._latest_frame is not None:
+                    img_to_process = self._latest_frame
+                    self._latest_frame = None
 
-        if not hasattr(self, "_frame_count"):
-            self._frame_count = 0
-            self._last_embeddings = []
+            if img_to_process is None:
+                time.sleep(0.01)
+                continue
 
-        self._frame_count += 1
-        do_detect = (self._frame_count % PROCESS_EVERY_N == 0)
-
-        cv2 = self.cv2
-        np = self.np
-
-        if do_detect:
-            h, w = img.shape[:2]
+            # Perform detection & recognition
+            h, w = img_to_process.shape[:2]
             scale_x = w / 320.0
             scale_y = h / 240.0
 
-            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            cv2 = self.cv2
+            np = self.np
+
+            rgb = cv2.cvtColor(img_to_process, cv2.COLOR_BGR2RGB)
             small_detect = cv2.resize(rgb, (320, 240))
             try:
                 boxes, probs = self._mtcnn.detect(small_detect)
             except Exception:
                 boxes = None
 
-            self._last_embeddings = []
+            new_embeddings = []
             if boxes is not None:
                 for i, b in enumerate(boxes):
                     if probs is not None and probs[i] < 0.8:
@@ -178,7 +139,7 @@ class FaceRecognizerProcessor(VideoProcessorBase):
                     if x2 - x1 < 80 or y2 - y1 < 80:
                         continue
                     try:
-                        face_crop = cv2.resize(img[y1:y2, x1:x2], (160, 160))
+                        face_crop = cv2.resize(img_to_process[y1:y2, x1:x2], (160, 160))
                     except cv2.error:
                         continue
                     try:
@@ -195,16 +156,48 @@ class FaceRecognizerProcessor(VideoProcessorBase):
                     pi = np.argmax(ps)
                     conf = ps[pi]
                     name = self._le.classes_[pi]
-                    self._last_embeddings.append((x1, y1, x2, y2, name, conf))
+                    new_embeddings.append((x1, y1, x2, y2, name, conf))
 
-        if self._last_embeddings:
-            for x1, y1, x2, y2, name, conf in self._last_embeddings:
+            # Store the computed predictions
+            with self._predictions_lock:
+                self._last_embeddings = new_embeddings
+
+            # Add to attendance log if confidence is above threshold
+            if new_embeddings:
+                for x1, y1, x2, y2, name, conf in new_embeddings:
+                    if conf >= self.threshold:
+                        with self._pending_lock:
+                            if name not in self._pending:
+                                self._pending.append(name)
+            
+            # Sleep to yield the GIL and lower CPU/GPU load (runs at max ~6 FPS)
+            time.sleep(0.15)
+
+    def pop_pending(self):
+        with self._pending_lock:
+            items = list(self._pending)
+            self._pending.clear()
+            return items
+
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        if not self._heavy_initialized:
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+        # Push the frame to be processed in background
+        with self._latest_frame_lock:
+            self._latest_frame = img.copy()
+
+        # Render current overlay predictions on top of the frame
+        cv2 = self.cv2
+        with self._predictions_lock:
+            current_embeddings = list(self._last_embeddings)
+
+        if current_embeddings:
+            for x1, y1, x2, y2, name, conf in current_embeddings:
                 if conf >= self.threshold:
                     color = (0, 255, 0)
                     label = f"{name} ({conf:.0%})"
-                    with self._pending_lock:
-                        if name not in self._pending:
-                            self._pending.append(name)
                 else:
                     color = (0, 255, 255)
                     label = f"{name}? ({conf:.0%})"
@@ -218,27 +211,13 @@ class FaceRecognizerProcessor(VideoProcessorBase):
 
 
 FALLBACK_NAMES = [
-    "daochitrung_23ba14295",
-    "dohoanglong_2410559",
-    "dohunganh_23ba14011",
-    "duongtunganh_2410024",
-    "kieuminhduc_2411138",
-    "lehuuduc2411139",
-    "lethanhtra_2410980",
-    "letrongtien_23ba14280",
-    "luuminhhoang_23BA14119",
-    "dangbinhduong_22BA13091",
-    "nguyendinhgiang_23ba14089",
-    "nguyendinhminhquang_23BA14244",
-    "nguyenhong_truong_23BA14300",
-    "nguyenkhaiminh_2410607",
-    "nguyenmy_2410678",
-    "nguyenngochieu_23BA14109",
-    "nguyennguyennhat_23BA14222",
-    "nguyentathoangviet_23BA14320",
-    "phanduyhoang_23BA14117",
-    "phanminhtrang_23BA14290",
-    "tranmanhhung_23BA14127",
+    "daochitrung_23ba14295", "dohoanglong_2410559", "dohunganh_23ba14011",
+    "duongtunganh_2410024", "kieuminhduc_2411138", "lehuuduc2411139",
+    "lethanhtra_2410980", "letrongtien_23ba14280", "luuminhhoang_23BA14119",
+    "dangbinhduong_22BA13091", "nguyendinhgiang_23ba14089", "nguyendinhminhquang_23BA14244",
+    "nguyenhong_truong_23BA14300", "nguyenkhaiminh_2410607", "nguyenmy_2410678",
+    "nguyenngochieu_23BA14109", "nguyennguyennhat_23BA14222", "nguyentathoangviet_23BA14320",
+    "phanduyhoang_23BA14117", "phanminhtrang_23BA14290", "tranmanhhung_23BA14127",
     "transonbach_2410136"
 ]
 
@@ -249,10 +228,9 @@ def get_all_names():
     if not path.exists():
         return FALLBACK_NAMES
     names = sorted(set(
-        p.stem for p in path.iterdir() if p.is_dir()
+        p.name for p in path.iterdir() if p.is_dir()
     ))
     return names if names else FALLBACK_NAMES
-
 
 
 def split_name_id(folder_name):
@@ -260,7 +238,6 @@ def split_name_id(folder_name):
         parts = folder_name.rsplit("_", 1)
         return parts[0].replace("_", " ").title(), parts[1]
     
-    # Dynamically split letters (name) and numbers (student ID) if no underscore exists
     import re
     match = re.match(r"^([a-zA-Z_]+)(\d+)$", folder_name)
     if match:
@@ -292,11 +269,9 @@ def main():
 
     sidebar = st.sidebar
     sidebar.title("Attendance")
-    
     sidebar.markdown(f"**Device status:** {_DEVICE_STR}")
 
-    model_type = sidebar.radio("Classifier", ["SVM (RBF)", "KNN"], index=0,
-                               horizontal=True)
+    model_type = sidebar.radio("Classifier", ["SVM (RBF)", "KNN"], index=0, horizontal=True)
     model_key = "knn" if model_type.startswith("KNN") else "svm"
 
     threshold = sidebar.slider("Confidence", 0.0, 1.0, 0.5, 0.05)
@@ -307,7 +282,7 @@ def main():
         st.rerun()
 
     sidebar.markdown("---")
-    sidebar.markdown(f"**Model:** {'SVM (RBF)' if model_key == 'svm' else f'KNN (cosine)'}")
+    sidebar.markdown(f"**Model:** {'SVM (RBF)' if model_key == 'svm' else 'KNN (cosine)'}")
     sidebar.metric("Present", f"{len(st.session_state.log)} / 22")
 
     if "all_names" not in st.session_state:
@@ -319,14 +294,20 @@ def main():
     with main_col:
         st.subheader("Webcam Feed")
         
+        # Request 640x480 @ 15 FPS to massively lower CPU processing bandwidth and overhead
         webrtc_ctx = webrtc_streamer(
             key="face-attendance",
             video_processor_factory=FaceRecognizerProcessor,
-            rtc_configuration=RTC_CONFIGURATION,
-            media_stream_constraints={"video": True, "audio": False},
+            media_stream_constraints={
+                "video": {
+                    "width": {"ideal": 640},
+                    "height": {"ideal": 480},
+                    "frameRate": {"ideal": 15}
+                },
+                "audio": False
+            },
         )
 
-        
         if webrtc_ctx.video_processor:
             webrtc_ctx.video_processor.threshold = threshold
             webrtc_ctx.video_processor.model_type = model_key
@@ -346,7 +327,7 @@ def main():
                         del st.session_state["csv"]
 
         if webrtc_ctx.state.playing:
-            st_autorefresh(interval=1000, limit=10000, key="attendance-refresh")
+            st_autorefresh(interval=2000, limit=10000, key="attendance-refresh")
 
     with table_col:
         st.subheader("Attendance")
@@ -370,9 +351,11 @@ def main():
         st.session_state.last_log_len = len(st.session_state.log)
     csv = st.session_state.csv
 
-    sidebar.download_button("Download CSV", csv,
+    sidebar.download_button(
+        "Download CSV", csv,
         f"attendance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        "text/csv", width="stretch")
+        "text/csv", width="stretch"
+    )
 
 
 if __name__ == "__main__":

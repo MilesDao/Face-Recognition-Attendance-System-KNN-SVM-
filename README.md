@@ -6,19 +6,15 @@ A real-time face recognition attendance system using **FaceNet embeddings** + **
 
 ```
 face-class-cosine/
-├── svm/                          # SVM classifier
-│   ├── train.py                  #   training script
-│   └── svm_face_classifier.pkl   #   trained model (100% accuracy)
-├── knn/                          # KNN classifier
-│   ├── train.py                  #   training script
-│   └── knn_face_classifier.pkl   #   trained model (100% accuracy)
+├── models/                       # Directory containing all trained models
+│   ├── svm_face_classifier.pkl   #   Trained SVM model (100% accuracy)
+│   └── knn_face_classifier.pkl   #   Trained KNN model (100% accuracy)
 ├── extract_faces.py              # Face extraction from videos using MTCNN
-├── augment_data.py               # Data augmentation + distribution plots
-├── analyze_distribution.py       # Regenerate PCA / t-SNE / distribution figures
-├── train_comparison.py           # Side-by-side SVM vs KNN training + figures
+├── augment_data.py               # Data augmentation (contrast, blur, rotation, flip)
+├── analyze_distribution.py       # Generate PCA plot and data distribution figures
+├── train.py                      # Unified model training, caching, and comparison script
 ├── app.py                        # Streamlit WebRTC real-time attendance app
 ├── train_embeddings.npz          # Cached FaceNet embeddings (1505 x 512)
-├── train.py                      # (deprecated, use svm/train.py)
 ├── dataset/
 │   ├── train_raw/                # Cleaned raw extracted faces (301 images)
 │   └── train_augmented/          # Augmented dataset (1505 images)
@@ -26,15 +22,9 @@ face-class-cosine/
 │   ├── distribution_before.png
 │   ├── distribution_after.png
 │   ├── embedding_pca.png
-│   ├── embedding_tsne.png
 │   ├── svm_vs_knn_accuracy.png
 │   ├── svm_vs_knn_timing.png
-│   ├── knn_parameter_search.png
-│   ├── svm_parameter_search.png
-│   ├── metrics_comparison.png
-│   ├── confusion_matrix_svm.png
-│   ├── confusion_matrix_knn.png
-│   └── per_class_accuracy.png
+│   └── knn_parameter_search.png
 ├── report/
 │   └── report_en.tex             # English LaTeX report
 ├── Video_/                       # Original input videos (22 .mov files)
@@ -83,16 +73,10 @@ python extract_faces.py
 # Augment dataset (if not already done)
 python augment_data.py
 
-# Train SVM only
-python svm\train.py
+# Train both SVM and KNN, cache embeddings, and generate all comparison figures
+python train.py
 
-# Train KNN only
-python knn\train.py
-
-# Train both + generate all comparison figures
-python train_comparison.py
-
-# Regenerate analysis figures (PCA, t-SNE, distributions)
+# Regenerate analysis figures (PCA, distributions)
 python analyze_distribution.py
 ```
 
