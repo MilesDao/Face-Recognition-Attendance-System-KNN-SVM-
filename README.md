@@ -18,13 +18,16 @@ face-class-cosine/
 ├── dataset/
 │   ├── train_raw/                # Cleaned raw extracted faces (301 images)
 │   └── train_augmented/          # Augmented dataset (1505 images)
-├── figures/                      # All generated figures (PNG)
+├── figures/                      # Kept evaluation figures (PNG)
 │   ├── distribution_before.png
 │   ├── distribution_after.png
 │   ├── embedding_pca.png
 │   ├── svm_vs_knn_accuracy.png
 │   ├── svm_vs_knn_timing.png
-│   └── knn_parameter_search.png
+│   ├── knn_parameter_search.png
+│   ├── svm_parameter_search.png
+│   ├── confusion_matrix_svm.png
+│   └── confusion_matrix_knn.png
 ├── report/
 │   └── report_en.tex             # English LaTeX report
 ├── Video_/                       # Original input videos (22 .mov files)
