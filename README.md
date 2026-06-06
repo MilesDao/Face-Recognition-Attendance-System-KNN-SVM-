@@ -13,6 +13,7 @@ face-class-cosine/
 ├── augment_data.py               # Data augmentation (contrast, blur, rotation, flip)
 ├── analyze_distribution.py       # Generate PCA plot and data distribution figures
 ├── train.py                      # Unified model training, caching, and comparison script
+├── train.ipynb                   # Jupyter notebook version of the training script
 ├── app.py                        # Streamlit WebRTC real-time attendance app
 ├── train_embeddings.npz          # Cached FaceNet embeddings (1505 x 512)
 ├── dataset/

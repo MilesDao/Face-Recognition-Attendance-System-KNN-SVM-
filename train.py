@@ -249,6 +249,102 @@ fig3.savefig(FIGURES_DIR / "knn_parameter_search.png", bbox_inches="tight", dpi=
 logger.info(f"Saved {FIGURES_DIR / 'knn_parameter_search.png'}")
 plt.close(fig3)
 
+# ─── Plot Confusion Matrices ───
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+logger.info("Generating Confusion Matrices...")
+
+svm_cm = confusion_matrix(y_test, svm_pred)
+fig_svm_cm, ax_svm_cm = plt.subplots(figsize=(10, 8))
+disp_svm = ConfusionMatrixDisplay(confusion_matrix=svm_cm, display_labels=le.classes_)
+disp_svm.plot(ax=ax_svm_cm, cmap="Blues", xticks_rotation=45)
+ax_svm_cm.set_title("SVM Confusion Matrix", fontsize=14, fontweight="bold", pad=12)
+ax_svm_cm.tick_params(axis='both', which='major', labelsize=8)
+ax_svm_cm.grid(False)
+plt.tight_layout()
+fig_svm_cm.savefig(FIGURES_DIR / "confusion_matrix_svm.png", bbox_inches="tight", dpi=200)
+logger.info(f"Saved {FIGURES_DIR / 'confusion_matrix_svm.png'}")
+plt.close(fig_svm_cm)
+
+knn_cm = confusion_matrix(y_test, knn_pred)
+fig_knn_cm, ax_knn_cm = plt.subplots(figsize=(10, 8))
+disp_knn = ConfusionMatrixDisplay(confusion_matrix=knn_cm, display_labels=le.classes_)
+disp_knn.plot(ax=ax_knn_cm, cmap="Oranges", xticks_rotation=45)
+ax_knn_cm.set_title("KNN Confusion Matrix", fontsize=14, fontweight="bold", pad=12)
+ax_knn_cm.tick_params(axis='both', which='major', labelsize=8)
+ax_knn_cm.grid(False)
+plt.tight_layout()
+fig_knn_cm.savefig(FIGURES_DIR / "confusion_matrix_knn.png", bbox_inches="tight", dpi=200)
+logger.info(f"Saved {FIGURES_DIR / 'confusion_matrix_knn.png'}")
+plt.close(fig_knn_cm)
+
+# ─── SVM Parameter Search & Plot ───
+logger.info("Running SVM parameter search for plotting...")
+Cs = [0.001, 0.01, 0.1, 1, 10, 100, 1000]
+svm_c_accs = []
+svm_c_confs = []
+for C in Cs:
+    svm_temp = SVC(kernel="rbf", C=C, gamma="scale", probability=True, random_state=42)
+    svm_temp.fit(X_train, y_train)
+    preds = svm_temp.predict(X_test)
+    probs = svm_temp.predict_proba(X_test)
+    svm_c_accs.append(accuracy_score(y_test, preds))
+    svm_c_confs.append(probs.max(axis=1).mean())
+
+gammas = ["scale", "0.1", "0.01", "0.001", "0.0001"]
+svm_g_accs = []
+svm_g_confs = []
+for g in gammas:
+    g_val = g if g == "scale" else float(g)
+    svm_temp = SVC(kernel="rbf", C=10.0, gamma=g_val, probability=True, random_state=42)
+    svm_temp.fit(X_train, y_train)
+    preds = svm_temp.predict(X_test)
+    probs = svm_temp.predict_proba(X_test)
+    svm_g_accs.append(accuracy_score(y_test, preds))
+    svm_g_confs.append(probs.max(axis=1).mean())
+
+# Update json file to keep it sync
+import json
+search_results = {
+    "vary_C": {
+        "C": Cs,
+        "accuracy": svm_c_accs,
+        "confidence": svm_c_confs
+    },
+    "vary_gamma": {
+        "gamma": gammas,
+        "accuracy": svm_g_accs,
+        "confidence": svm_g_confs
+    }
+}
+with open("svm_param_search_results.json", "w") as f:
+    json.dump(search_results, f, indent=2)
+
+fig4, (ax_c, ax_g) = plt.subplots(1, 2, figsize=(14, 5.5))
+
+ax_c.plot(Cs, [a * 100 for a in svm_c_accs], "o-", color=BLUE, linewidth=2, label="Accuracy")
+ax_c.plot(Cs, [c * 100 for c in svm_c_confs], "s--", color="#4ea8de", linewidth=1.8, label="Confidence")
+ax_c.set_xscale("log")
+ax_c.set_xlabel("C (regularization parameter)", fontsize=12)
+ax_c.set_ylabel("Percentage (%)", fontsize=12)
+ax_c.set_title("SVM Performance vs C (gamma='scale')", fontsize=13, fontweight="bold", pad=10)
+ax_c.grid(True, alpha=0.3)
+ax_c.legend(loc="lower right")
+
+ax_g.plot(range(len(gammas)), [a * 100 for a in svm_g_accs], "o-", color=ORANGE, linewidth=2, label="Accuracy")
+ax_g.plot(range(len(gammas)), [c * 100 for c in svm_g_confs], "s--", color="#ff70a6", linewidth=1.8, label="Confidence")
+ax_g.set_xticks(range(len(gammas)))
+ax_g.set_xticklabels(gammas)
+ax_g.set_xlabel("gamma (kernel coefficient)", fontsize=12)
+ax_g.set_ylabel("Percentage (%)", fontsize=12)
+ax_g.set_title("SVM Performance vs gamma (C=10.0)", fontsize=13, fontweight="bold", pad=10)
+ax_g.grid(True, alpha=0.3)
+ax_g.legend(loc="lower left")
+
+plt.tight_layout()
+fig4.savefig(FIGURES_DIR / "svm_parameter_search.png", bbox_inches="tight", dpi=200)
+logger.info(f"Saved {FIGURES_DIR / 'svm_parameter_search.png'}")
+plt.close(fig4)
+
 # Print summary
 print()
 print("=" * 60)
